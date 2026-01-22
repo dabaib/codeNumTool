@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>代码统计工具</title>
+  <script src="./node_modules/echarts/dist/echarts.min.js"></script>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="container">
+    <h1>代码统计工具</h1>
+
+    <!-- 登录表单 -->
+    <div class="card" id="loginCard">
+      <h2>连接配置</h2>
+
+      <!-- 版本控制类型选择 -->
+      <div class="form-group">
+        <label>版本控制类型:</label>
+        <div class="vcs-toggle">
+          <button type="button" class="vcs-btn active" data-vcs="svn">SVN</button>
+          <button type="button" class="vcs-btn" data-vcs="git">GitLab</button>
+        </div>
+        <input type="hidden" id="vcsType" value="svn">
+      </div>
+
+      <!-- GitLab配置（默认隐藏） -->
+      <div id="gitlabConfig" class="hidden">
+        <!-- 此处内容已被移除，以支持SSH密钥认证 -->
+      </div>
+
+      <!-- SVN项目配置 -->
+      <div id="svnProjectConfig">
+        <div class="form-group">
+          <label>SVN项目列表 (每行一个: 项目名称 | SVN地址):</label>
+          <div id="projectList" class="project-list">
+            <div class="project-row" data-index="0">
+              <input type="text" class="project-name" placeholder="项目名称">
+              <input type="text" class="project-url" placeholder="SVN地址">
+              <button type="button" class="btn-icon btn-remove" title="删除">×</button>
+            </div>
+          </div>
+          <button type="button" id="addProjectBtn" class="btn btn-small">+ 添加项目</button>
+        </div>
+      </div>
+
+      <!-- GitLab项目配置 (默认隐藏) -->
+      <div id="gitlabProjectConfig" class="hidden">
+
+        <!-- GitLab 子模式切换 -->
+        <div class="form-group">
+          <label>连接方式:</label>
+          <div class="gitlab-mode-toggle">
+            <button type="button" class="gitlab-mode-btn active" data-mode="local">本地仓库</button>
+            <button type="button" class="gitlab-mode-btn" data-mode="ssh">SSH 远程</button>
+          </div>
+        </div>
+
+        <!-- 本地扫描模式配置 -->
+        <div id="gitlabLocalConfig">
+          <p class="mode-hint">本地模式: 直接读取本地已克隆的 Git 仓库，速度快，无需网络连接。</p>
+
+          <div class="form-group">
+            <label>本地仓库:</label>
+            <div class="local-repo-selector">
+              <input type="text" id="localRepoPath" readonly placeholder="点击选择本地 Git 仓库目录">
+              <button type="button" id="selectRepoBtn" class="btn btn-small">选择目录</button>
+            </div>
+          </div>
+
+          <div id="localRepoInfo" class="project-info hidden">
+            <span class="repo-name-display"></span>
+            <span class="branch-count"></span>
+          </div>
+        </div>
+
+        <!-- SSH 远程模式配置 -->
+        <div id="gitlabSshConfig" class="hidden">
+          <p class="mode-hint">SSH 模式: 通过 SSH 连接远程仓库，需要已配置 SSH Key。</p>
+
+          <div class="form-group">
+            <label>Git SSH 地址:</label>
+            <input type="text" id="sshRepoUrl" placeholder="git@gitlab.example.com:group/project.git">
+          </div>
+
+          <div class="form-group">
+            <button type="button" id="testSshBtn" class="btn btn-small">测试连接</button>
+            <span id="sshTestStatus" class="status"></span>
+          </div>
+
+          <div id="sshRepoInfo" class="project-info hidden">
+            <span class="repo-name-display"></span>
+            <span class="branch-count"></span>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- SVN用户名密码（Git模式隐藏） -->
+      <div id="svnAuthConfig" class="form-row">
+        <div class="form-group">
+          <label for="username">用户名:</label>
+          <input type="text" id="username" placeholder="SVN登录用户名">
+        </div>
+        <div class="form-group">
+          <label for="password">密码:</label>
+          <input type="password" id="password" placeholder="SVN登录密码">
+        </div>
+      </div>
+
+      <!-- 阈值配置 -->
+      <div class="form-row">
+        <div class="form-group">
+          <label for="threshold">单次提交代码量阈值 (超过视为异常):</label>
+          <input type="number" id="threshold" value="3000" min="1" placeholder="默认500行">
+        </div>
+        <div class="form-group">
+          <label for="formatThreshold">格式化代码阈值 (超过此值且删除接近新增):</label>
+          <input type="number" id="formatThreshold" value="200" min="1" placeholder="默认200行">
+        </div>
+      </div>
+
+      <!-- AI 代码审查配置 -->
+      <div class="ai-config-section">
+        <h3>🤖 AI 代码审查配置 (可选)</h3>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="aiApiUrl">API 地址:</label>
+            <input type="text" id="aiApiUrl" placeholder="http://localhost:11434/v1/chat/completions">
+          </div>
+          <div class="form-group">
+            <label for="aiModel">模型名称:</label>
+            <input type="text" id="aiModel" placeholder="qwen2.5:7b">
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="aiApiKey">API Key (Authorization):</label>
+          <input type="password" id="aiApiKey" placeholder="Bearer sk-xxx 或留空">
+        </div>
+      </div>
+
+      <button id="loginBtn" class="btn btn-primary">连接</button>
+      <div id="loginStatus" class="status"></div>
+    </div>
+
+    <!-- 统计查询表单 -->
+    <div class="card hidden" id="statsCard">
+      <h2>代码统计查询</h2>
+      <div class="form-row">
+        <div class="form-group">
+          <label for="author">提交者账号:</label>
+          <input type="text" id="author" placeholder="要统计的用户名">
+        </div>
+        <div class="form-group" id="branchGroup">
+          <label for="branch">分支:</label>
+          <select id="branch" multiple size="5"></select>
+        </div>
+        <div class="form-group">
+          <label for="yearMonth">选择月份:</label>
+          <input type="month" id="yearMonth">
+        </div>
+      </div>
+      <button id="queryBtn" class="btn btn-primary">查询统计</button>
+      <button id="changeConnBtn" class="btn btn-secondary">更换连接</button>
+      <div id="queryStatus" class="status"></div>
+    </div>
+
+    <!-- 统计结果 -->
+    <div class="card hidden" id="resultsCard">
+      <h2>统计结果</h2>
+
+      <!-- 项目选择标签 -->
+      <div class="project-tabs" id="projectTabs"></div>
+
+      <!-- 汇总统计 -->
+      <div class="stats-summary">
+        <div class="stat-item">
+          <span class="stat-label">提交次数</span>
+          <span class="stat-value" id="totalCommits">0</span>
+        </div>
+        <div class="stat-item added">
+          <span class="stat-label">新增代码行</span>
+          <span class="stat-value" id="totalAdded">0</span>
+        </div>
+        <div class="stat-item deleted">
+          <span class="stat-label">删除代码行</span>
+          <span class="stat-value" id="totalDeleted">0</span>
+        </div>
+        <div class="stat-item net">
+          <span class="stat-label">净增代码行</span>
+          <span class="stat-value" id="netLines">0</span>
+        </div>
+      </div>
+
+      <!-- 异常统计和活跃天数 -->
+      <div class="stats-summary-small">
+        <div class="stat-item-small warning">
+          <span class="stat-label">超阈值提交</span>
+          <span class="stat-value" id="overThresholdCount">0</span>
+        </div>
+        <div class="stat-item-small info">
+          <span class="stat-label">格式化代码提交</span>
+          <span class="stat-value" id="formatCodeCount">0</span>
+        </div>
+        <div class="stat-item-small active-days">
+          <span class="stat-label">活跃天数</span>
+          <span class="stat-value" id="activeDays">0</span>
+        </div>
+      </div>
+
+      <!-- 项目统计表格（仅全部项目时显示） -->
+      <div class="project-stats-section" id="projectStatsSection">
+        <h3>各项目代码量统计</h3>
+        <div class="project-stats-table-wrapper">
+          <table class="project-stats-table" id="projectStatsTable">
+            <thead>
+              <tr>
+                <th>项目名称</th>
+                <th>提交次数</th>
+                <th>新增行</th>
+                <th>删除行</th>
+                <th>净增行</th>
+                <th>feat</th>
+                <th>fix</th>
+                <th>其他</th>
+              </tr>
+            </thead>
+            <tbody id="projectStatsBody">
+            </tbody>
+            <tfoot id="projectStatsFoot">
+            </tfoot>
+          </table>
+        </div>
+      </div>
+
+      <!-- 图表容器 -->
+      <div class="charts-row">
+        <div class="chart-container half">
+          <h3>提交类型分布</h3>
+          <div id="pieChart" style="width: 100%; height: 300px;"></div>
+        </div>
+        <div class="chart-container half">
+          <h3>每日提交次数</h3>
+          <div id="barChart" style="width: 100%; height: 300px;"></div>
+        </div>
+      </div>
+
+      <div class="chart-container">
+        <h3>每日代码变化趋势</h3>
+        <div id="lineChart" style="width: 100%; height: 350px;"></div>
+      </div>
+
+      <!-- 提交记录列表 -->
+      <div class="commits-section">
+        <h3>提交记录明细</h3>
+
+        <!-- 筛选工具栏 -->
+        <div class="filter-bar">
+          <div class="filter-group">
+            <label>提交类型:</label>
+            <select id="filterType">
+              <option value="">全部</option>
+              <option value="feat">feat (新功能)</option>
+              <option value="fix">fix (修复)</option>
+              <option value="refactor">refactor (重构)</option>
+              <option value="style">style (样式)</option>
+              <option value="docs">docs (文档)</option>
+              <option value="test">test (测试)</option>
+              <option value="chore">chore (杂务)</option>
+              <option value="other">其他</option>
+            </select>
+          </div>
+          <div class="filter-group">
+            <label>状态:</label>
+            <select id="filterStatus">
+              <option value="">全部</option>
+              <option value="normal">正常</option>
+              <option value="over">超阈值</option>
+              <option value="format">格式化代码</option>
+            </select>
+          </div>
+          <div class="filter-group">
+            <label>关键词:</label>
+            <input type="text" id="filterKeyword" placeholder="搜索提交信息...">
+          </div>
+          <button id="filterBtn" class="btn btn-small">筛选</button>
+          <button id="resetFilterBtn" class="btn btn-small btn-secondary">重置</button>
+        </div>
+
+        <!-- 提交记录表格 -->
+        <div class="commits-table-wrapper">
+          <table class="commits-table" id="commitsTable">
+            <thead>
+              <tr>
+                <th>项目</th>
+                <th>版本号</th>
+                <th>日期</th>
+                <th>类型</th>
+                <th>提交信息</th>
+                <th>新增</th>
+                <th>删除</th>
+                <th>净增</th>
+                <th>状态</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="commitsBody">
+            </tbody>
+          </table>
+        </div>
+
+        <div class="commits-pagination" id="pagination"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Diff 查看模态框 -->
+  <div class="diff-modal-overlay hidden" id="diffModalOverlay">
+    <div class="diff-modal" id="diffModal">
+      <div class="diff-modal-header">
+        <h3 id="diffModalTitle">代码差异</h3>
+        <div class="diff-modal-actions">
+          <button class="btn btn-small btn-ai-review" id="diffReviewBtn" title="AI 代码审查">🔍 AI审查</button>
+          <button class="diff-modal-close" id="diffModalClose">&times;</button>
+        </div>
+      </div>
+      <div class="diff-modal-body" id="diffModalBody">
+        <!-- 加载状态 -->
+        <div class="diff-loading" id="diffLoading">
+          <div class="spinner"></div>
+          <p>正在加载代码差异...</p>
+        </div>
+        <!-- 错误状态 -->
+        <div class="diff-error hidden" id="diffError">
+          <p class="error-message"></p>
+        </div>
+        <!-- 大文件警告 -->
+        <div class="diff-warning hidden" id="diffWarning">
+          <p>此提交包含大量变更（超过2000行），加载可能较慢。</p>
+          <button class="btn btn-small" id="diffWarningConfirm">继续加载</button>
+          <button class="btn btn-small btn-secondary" id="diffWarningCancel">取消</button>
+        </div>
+        <!-- Diff 内容 -->
+        <div class="diff-content hidden" id="diffContent">
+          <!-- 文件列表 -->
+          <div class="diff-file-list" id="diffFileList"></div>
+          <!-- Diff 详情 -->
+          <div class="diff-files" id="diffFiles"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- AI 代码审查结果弹窗 -->
+  <div class="review-modal-overlay hidden" id="reviewModalOverlay">
+    <div class="review-modal" id="reviewModal">
+      <div class="review-modal-header">
+        <h3>🔍 AI 代码审查结果</h3>
+        <button class="review-modal-close" id="reviewModalClose">&times;</button>
+      </div>
+      <div class="review-modal-body" id="reviewModalBody">
+        <!-- 加载状态 -->
+        <div class="review-loading" id="reviewLoading">
+          <div class="spinner"></div>
+          <p>正在进行代码审查，请稍候...</p>
+          <p class="review-hint">AI 正在分析代码变更，这可能需要一些时间</p>
+        </div>
+        <!-- 错误状态 -->
+        <div class="review-error hidden" id="reviewError">
+          <p class="error-icon">❌</p>
+          <p class="error-message"></p>
+        </div>
+        <!-- 审查结果 -->
+        <div class="review-result hidden" id="reviewResult">
+          <div class="review-content" id="reviewContent"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>
