@@ -36,6 +36,7 @@ const loginStatus = document.getElementById('loginStatus');
 
 const authorInput = document.getElementById('author');
 const branchInput = document.getElementById('branch');
+const branchSearchInput = document.getElementById('branchSearch');
 const branchGroup = document.getElementById('branchGroup');
 const yearMonthInput = document.getElementById('yearMonth');
 const queryBtn = document.getElementById('queryBtn');
@@ -167,16 +168,7 @@ testSshBtn.addEventListener('click', async () => {
       sshRepoInfo.querySelector('.branch-count').textContent = `(${result.branches.length} 个分支)`;
 
       // 填充分支选择
-      branchInput.innerHTML = '';
-      result.branches.forEach((branchName, index) => {
-        const option = document.createElement('option');
-        option.value = branchName;
-        option.textContent = branchName;
-        if (branchName === 'main' || branchName === 'master' || index === 0) {
-          option.selected = true;
-        }
-        branchInput.appendChild(option);
-      });
+      populateBranchOptions(result.branches);
 
       showStatus(sshTestStatus, `连接成功: ${result.repoName}`, 'success');
     } else {
@@ -213,16 +205,7 @@ selectRepoBtn.addEventListener('click', async () => {
       localRepoInfo.querySelector('.branch-count').textContent = `(${result.branches.length} 个分支)`;
 
       // 填充分支选择
-      branchInput.innerHTML = '';
-      result.branches.forEach((branchName, index) => {
-        const option = document.createElement('option');
-        option.value = branchName;
-        option.textContent = branchName;
-        if (branchName === 'main' || branchName === 'master' || index === 0) {
-          option.selected = true;
-        }
-        branchInput.appendChild(option);
-      });
+      populateBranchOptions(result.branches);
 
       // 自动获取本地 git 用户名
       const userResult = await window.gitlabAPI.getLocalGitUser();
@@ -252,6 +235,69 @@ let filteredCommits = [];
 let currentPage = 1;
 const pageSize = 20;
 let selectedGroup = 'all';
+
+// 存储选中的提交索引
+let selectedCommitIndices = new Set();
+
+// 全选复选框
+const selectAllCommitsCheckbox = document.getElementById('selectAllCommits');
+const selectedCountEl = document.getElementById('selectedCount');
+
+// 存储所有分支（用于搜索过滤）
+let allBranches = [];
+
+// 分支搜索过滤功能
+if (branchSearchInput) {
+  branchSearchInput.addEventListener('input', (e) => {
+    const searchTerm = e.target.value.toLowerCase().trim();
+    filterBranchOptions(searchTerm);
+  });
+}
+
+// 过滤分支选项
+function filterBranchOptions(searchTerm) {
+  if (!branchInput) return;
+
+  // 保存当前选中的分支
+  const selectedBranches = Array.from(branchInput.selectedOptions).map(opt => opt.value);
+
+  // 清空并重新填充
+  branchInput.innerHTML = '';
+
+  const filteredBranches = searchTerm
+    ? allBranches.filter(b => b.toLowerCase().includes(searchTerm))
+    : allBranches;
+
+  filteredBranches.forEach((branchName) => {
+    const option = document.createElement('option');
+    option.value = branchName;
+    option.textContent = branchName;
+    // 恢复之前的选中状态
+    if (selectedBranches.includes(branchName)) {
+      option.selected = true;
+    }
+    branchInput.appendChild(option);
+  });
+}
+
+// 填充分支选项（供其他地方调用）
+function populateBranchOptions(branches) {
+  allBranches = branches;
+  branchInput.innerHTML = '';
+  if (branchSearchInput) {
+    branchSearchInput.value = '';
+  }
+
+  branches.forEach((branchName, index) => {
+    const option = document.createElement('option');
+    option.value = branchName;
+    option.textContent = branchName;
+    if (branchName === 'main' || branchName === 'master' || index === 0) {
+      option.selected = true;
+    }
+    branchInput.appendChild(option);
+  });
+}
 
 // 图表实例
 let lineChart = null;
@@ -679,6 +725,8 @@ function applyFilter() {
 
   filteredCommits = commits;
   currentPage = 1;
+  // 筛选后清空选中状态
+  selectedCommitIndices.clear();
   renderCommitsTable();
   renderPagination();
 }
@@ -699,7 +747,8 @@ function renderCommitsTable() {
   const pageCommits = filteredCommits.slice(start, end);
 
   if (pageCommits.length === 0) {
-    commitsBody.innerHTML = '<tr><td colspan="10" style="text-align: center; color: #999; padding: 30px;">暂无提交记录</td></tr>';
+    commitsBody.innerHTML = '<tr><td colspan="11" style="text-align: center; color: #999; padding: 30px;">暂无提交记录</td></tr>';
+    updateSelectedCount();
     return;
   }
 
@@ -715,8 +764,11 @@ function renderCommitsTable() {
       format: '格式化'
     }[commit.status];
 
+    const isChecked = selectedCommitIndices.has(globalIndex) ? 'checked' : '';
+
     html += `
       <tr>
+        <td class="checkbox-col"><input type="checkbox" class="commit-checkbox" data-index="${globalIndex}" ${isChecked}></td>
         <td>${escapeHtml(commit.project)}</td>
         <td>r${commit.revision}</td>
         <td>${dateStr}</td>
@@ -735,6 +787,98 @@ function renderCommitsTable() {
   });
 
   commitsBody.innerHTML = html;
+
+  // 绑定复选框事件
+  bindCheckboxEvents();
+  updateSelectedCount();
+  updateSelectAllCheckbox();
+}
+
+// 绑定复选框事件
+function bindCheckboxEvents() {
+  const checkboxes = document.querySelectorAll('.commit-checkbox');
+  checkboxes.forEach(checkbox => {
+    checkbox.addEventListener('change', (e) => {
+      const index = parseInt(e.target.dataset.index);
+      if (e.target.checked) {
+        selectedCommitIndices.add(index);
+      } else {
+        selectedCommitIndices.delete(index);
+      }
+      updateSelectedCount();
+      updateSelectAllCheckbox();
+    });
+  });
+}
+
+// 更新已选择计数
+function updateSelectedCount() {
+  if (selectedCountEl) {
+    const count = selectedCommitIndices.size;
+    if (count > 0) {
+      selectedCountEl.textContent = `已选择 ${count} 条`;
+      selectedCountEl.classList.add('has-selection');
+    } else {
+      selectedCountEl.textContent = '';
+      selectedCountEl.classList.remove('has-selection');
+    }
+  }
+}
+
+// 更新全选复选框状态
+function updateSelectAllCheckbox() {
+  if (!selectAllCommitsCheckbox) return;
+
+  const start = (currentPage - 1) * pageSize;
+  const end = Math.min(start + pageSize, filteredCommits.length);
+  const pageIndices = [];
+
+  for (let i = start; i < end; i++) {
+    pageIndices.push(i);
+  }
+
+  if (pageIndices.length === 0) {
+    selectAllCommitsCheckbox.checked = false;
+    selectAllCommitsCheckbox.indeterminate = false;
+    return;
+  }
+
+  const selectedOnPage = pageIndices.filter(i => selectedCommitIndices.has(i)).length;
+
+  if (selectedOnPage === 0) {
+    selectAllCommitsCheckbox.checked = false;
+    selectAllCommitsCheckbox.indeterminate = false;
+  } else if (selectedOnPage === pageIndices.length) {
+    selectAllCommitsCheckbox.checked = true;
+    selectAllCommitsCheckbox.indeterminate = false;
+  } else {
+    selectAllCommitsCheckbox.checked = false;
+    selectAllCommitsCheckbox.indeterminate = true;
+  }
+}
+
+// 全选复选框事件
+if (selectAllCommitsCheckbox) {
+  selectAllCommitsCheckbox.addEventListener('change', (e) => {
+    const start = (currentPage - 1) * pageSize;
+    const end = Math.min(start + pageSize, filteredCommits.length);
+
+    for (let i = start; i < end; i++) {
+      if (e.target.checked) {
+        selectedCommitIndices.add(i);
+      } else {
+        selectedCommitIndices.delete(i);
+      }
+    }
+
+    // 更新当前页面的复选框
+    const checkboxes = document.querySelectorAll('.commit-checkbox');
+    checkboxes.forEach(checkbox => {
+      checkbox.checked = e.target.checked;
+    });
+
+    updateSelectedCount();
+  });
 }
 
 // HTML转义
@@ -1336,13 +1480,52 @@ function getAIConfig() {
   };
 }
 
-// 保存 AI 配置到 connectionConfig
+// 保存 AI 配置到 connectionConfig 和 localStorage
 function saveAIConfig() {
   const config = getAIConfig();
   connectionConfig.aiApiUrl = config.apiUrl;
   connectionConfig.aiModel = config.model;
   connectionConfig.aiApiKey = config.authorization;
+
+  // 保存到 localStorage
+  try {
+    localStorage.setItem('aiConfig', JSON.stringify({
+      apiUrl: config.apiUrl,
+      model: config.model,
+      apiKey: config.authorization
+    }));
+  } catch (e) {
+    console.error('保存 AI 配置失败:', e);
+  }
 }
+
+// 从 localStorage 加载 AI 配置
+function loadAIConfig() {
+  try {
+    const saved = localStorage.getItem('aiConfig');
+    if (saved) {
+      const config = JSON.parse(saved);
+      if (aiApiUrlInput && config.apiUrl) {
+        aiApiUrlInput.value = config.apiUrl;
+      }
+      if (aiModelInput && config.model) {
+        aiModelInput.value = config.model;
+      }
+      if (aiApiKeyInput && config.apiKey) {
+        aiApiKeyInput.value = config.apiKey;
+      }
+      // 同步到 connectionConfig
+      connectionConfig.aiApiUrl = config.apiUrl || '';
+      connectionConfig.aiModel = config.model || '';
+      connectionConfig.aiApiKey = config.apiKey || '';
+    }
+  } catch (e) {
+    console.error('加载 AI 配置失败:', e);
+  }
+}
+
+// 页面加载时自动加载 AI 配置
+loadAIConfig();
 
 // 打开审查结果弹窗
 function openReviewModal() {
@@ -1626,3 +1809,189 @@ document.addEventListener('keydown', (e) => {
     closeReviewModal();
   }
 });
+
+// ============================================
+// 批量 AI 代码审查功能
+// ============================================
+
+const batchReviewBtn = document.getElementById('batchReviewBtn');
+
+// 批量审查按钮事件
+if (batchReviewBtn) {
+  batchReviewBtn.addEventListener('click', async () => {
+    // 保存 AI 配置
+    saveAIConfig();
+
+    const aiConfig = getAIConfig();
+    if (!aiConfig.apiUrl || !aiConfig.model) {
+      alert('请先在登录页面配置 AI API 地址和模型名称');
+      return;
+    }
+
+    // 获取用户勾选的提交记录
+    if (selectedCommitIndices.size === 0) {
+      alert('请先勾选要审查的提交记录');
+      return;
+    }
+
+    // 根据选中索引获取提交记录
+    const commitsToReview = [];
+    selectedCommitIndices.forEach(index => {
+      if (filteredCommits[index]) {
+        commitsToReview.push(filteredCommits[index]);
+      }
+    });
+
+    if (commitsToReview.length === 0) {
+      alert('没有有效的提交记录可供审查');
+      return;
+    }
+
+    // 限制最多20条，避免prompt过长
+    const maxCommits = 20;
+    if (commitsToReview.length > maxCommits) {
+      alert(`最多支持同时审查 ${maxCommits} 条提交记录，当前选择了 ${commitsToReview.length} 条，请减少选择数量`);
+      return;
+    }
+
+    // 打开审查弹窗
+    openReviewModal();
+
+    try {
+      // 获取每个提交的实际代码 diff
+      const commitsWithDiff = [];
+
+      for (let i = 0; i < commitsToReview.length; i++) {
+        const commit = commitsToReview[i];
+
+        // 更新加载提示
+        if (reviewLoading) {
+          const loadingText = reviewLoading.querySelector('p');
+          if (loadingText) {
+            loadingText.textContent = `正在获取代码差异 (${i + 1}/${commitsToReview.length})...`;
+          }
+        }
+
+        let diffText = '';
+        try {
+          let diffResult;
+
+          if (connectionConfig.vcs === 'svn') {
+            diffResult = await window.svnAPI.getDiff({
+              projectUrl: commit.projectUrl,
+              revision: commit.revision,
+              username: connectionConfig.username,
+              password: connectionConfig.password
+            });
+          } else {
+            const commitHash = commit.fullHash || commit.revision;
+            const gitlabMode = connectionConfig.gitlabMode;
+
+            if (gitlabMode === 'local') {
+              diffResult = await window.gitlabAPI.localGetDiff({
+                repoPath: connectionConfig.localRepoPath,
+                commitHash: commitHash
+              });
+            } else {
+              diffResult = await window.gitlabAPI.sshGetDiff({
+                repoUrl: connectionConfig.sshRepoUrl,
+                commitHash: commitHash
+              });
+            }
+          }
+
+          if (diffResult && diffResult.success && diffResult.diff) {
+            // 将 diff 对象转换为可读文本
+            diffText = formatDiffToText(diffResult.diff);
+          }
+        } catch (e) {
+          console.error(`获取提交 ${commit.revision} 的 diff 失败:`, e);
+          diffText = '(获取代码差异失败)';
+        }
+
+        commitsWithDiff.push({
+          revision: commit.revision,
+          date: commit.date,
+          commitType: commit.commitType,
+          message: commit.message,
+          added: commit.added,
+          deleted: commit.deleted,
+          net: commit.net,
+          status: commit.status,
+          project: commit.project,
+          diffText: diffText
+        });
+      }
+
+      // 更新加载提示
+      if (reviewLoading) {
+        const loadingText = reviewLoading.querySelector('p');
+        if (loadingText) {
+          loadingText.textContent = '正在进行 AI 代码审查，请稍候...';
+        }
+      }
+
+      const result = await window.codeReviewAPI.batchReview({
+        apiUrl: aiConfig.apiUrl,
+        model: aiConfig.model,
+        authorization: aiConfig.authorization,
+        commits: commitsWithDiff
+      });
+
+      if (result.success) {
+        showReviewResult(result.result);
+      } else {
+        showReviewError(result.error || '批量代码审查失败');
+      }
+    } catch (error) {
+      showReviewError('批量代码审查出错: ' + error.message);
+    }
+  });
+}
+
+// 将 diff 对象转换为可读文本格式
+function formatDiffToText(diffData) {
+  if (!diffData || !diffData.files || diffData.files.length === 0) {
+    return '(无代码变更)';
+  }
+
+  let result = '';
+
+  for (const file of diffData.files) {
+    result += `\n--- 文件: ${file.newPath || file.oldPath} (${file.status || 'modified'}) ---\n`;
+
+    if (file.isBinary) {
+      result += '[二进制文件]\n';
+      continue;
+    }
+
+    if (file.hunks && file.hunks.length > 0) {
+      for (const hunk of file.hunks) {
+        result += `@@ -${hunk.oldStart},${hunk.oldLines} +${hunk.newStart},${hunk.newLines} @@\n`;
+
+        if (hunk.changes) {
+          // 限制每个 hunk 显示的行数，避免内容过长
+          const maxLines = 50;
+          const changes = hunk.changes.slice(0, maxLines);
+
+          for (const change of changes) {
+            const prefix = change.type === 'add' ? '+' : change.type === 'del' ? '-' : ' ';
+            result += `${prefix}${change.content}\n`;
+          }
+
+          if (hunk.changes.length > maxLines) {
+            result += `... (省略 ${hunk.changes.length - maxLines} 行)\n`;
+          }
+        }
+      }
+    }
+  }
+
+  // 限制总长度
+  const maxLength = 3000;
+  if (result.length > maxLength) {
+    result = result.substring(0, maxLength) + '\n... (代码内容过长，已截断)';
+  }
+
+  return result;
+}

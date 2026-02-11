@@ -167,6 +167,11 @@ The commits table includes a "查看" (View) button for each commit to display c
 
 **API 格式：** 兼容 OpenAI Chat Completions API 和 Ollama 响应格式
 
+**错误处理：** 自动检测并提示以下问题：
+- API 返回 HTML 页面（地址错误）
+- HTTP 非 200 状态码
+- JSON 解析失败（显示响应内容预览）
+
 ## Dependencies
 
 - `iconv-lite`: GBK to UTF-8 conversion for Windows SVN output

@@ -60,5 +60,7 @@ contextBridge.exposeInMainWorld('gitlabAPI', {
 // 代码审查 API
 contextBridge.exposeInMainWorld('codeReviewAPI', {
   review: ({ apiUrl, model, authorization, diffData }) =>
-    ipcRenderer.invoke('code-review', { apiUrl, model, authorization, diffData })
+    ipcRenderer.invoke('code-review', { apiUrl, model, authorization, diffData }),
+  batchReview: ({ apiUrl, model, authorization, commits }) =>
+    ipcRenderer.invoke('batch-code-review', { apiUrl, model, authorization, commits })
 });

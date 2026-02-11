@@ -442,10 +442,10 @@ ipcMain.handle('gitlab-stats', async (event, { projects, author, branches, year,
             throw new Error('Could not determine default branch.');
           }
         } catch (e) {
-           return { success: false, error: '无法确定默认分支，请尝试手动选择一个分支。' };
+          return { success: false, error: '无法确定默认分支，请尝试手动选择一个分支。' };
         }
       }
-      
+
       // 3. 遍历每个目标分支进行统计
       for (const branch of targetBranches) {
         const branchName = branch.trim();
@@ -466,7 +466,7 @@ ipcMain.handle('gitlab-stats', async (event, { projects, author, branches, year,
         const logFormat = `%H%n%aN%n%cN%n%ai%n%s%n%b${logSeparator}`; // Added %cN for committer name
         // Removed --author flag to filter in JS, which is more robust
         const logCommand = `git -C "${repoPath}" log origin/${branchName} --since="${startDate}" --until="${endDate}" --pretty=format:"${logFormat}"`;
-        
+
         const logOutput = await runCommand(logCommand);
         const commitLogs = logOutput.split(logSeparator).filter(log => log.trim() !== '');
 
@@ -477,12 +477,12 @@ ipcMain.handle('gitlab-stats', async (event, { projects, author, branches, year,
           const hash = lines[0];
           const commitAuthor = lines[1];
           const commitCommitter = lines[2]; // New: committer name
-          
+
           // New: Filter by author or committer in JS
           if (commitAuthor.toLowerCase() !== authorToMatch && commitCommitter.toLowerCase() !== authorToMatch) {
             continue;
           }
-          
+
           const date = lines[3].replace(' ', 'T') + 'Z';
           const message = lines.slice(4).join('\n').trim();
           const commitType = parseCommitType(message);
@@ -565,7 +565,7 @@ ipcMain.handle('gitlab-stats', async (event, { projects, author, branches, year,
     for (let day = 1; day <= daysInMonth; day++) {
       const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
       let dayAdded = 0, dayDeleted = 0, dayCommits = 0;
-      
+
       // Sum daily stats from all processed branches
       for (const bName of Object.keys(branchStats)) {
         const ds = branchStats[bName].dailyStats[dateStr];
@@ -987,7 +987,7 @@ ipcMain.handle('gitlab-ssh-stats', async (event, {
         const commitCommitter = lines[2];
 
         if (commitAuthor.toLowerCase() !== authorToMatch &&
-            commitCommitter.toLowerCase() !== authorToMatch) {
+          commitCommitter.toLowerCase() !== authorToMatch) {
           continue;
         }
 
@@ -1479,7 +1479,7 @@ ipcMain.handle('gitlab-local-stats', async (event, {
           const commitCommitter = lines[2];
 
           if (commitAuthor.toLowerCase() !== authorToMatch &&
-              commitCommitter.toLowerCase() !== authorToMatch) {
+            commitCommitter.toLowerCase() !== authorToMatch) {
             continue;
           }
 
@@ -1741,6 +1741,19 @@ function callLLMApi(apiUrl, model, authorization, prompt) {
         let data = '';
         res.on('data', chunk => data += chunk);
         res.on('end', () => {
+          // 检查是否返回了 HTML 而不是 JSON（常见于 API 地址错误或服务不可用）
+          const trimmedData = data.trim();
+          if (trimmedData.startsWith('<!') || trimmedData.startsWith('<html') || trimmedData.startsWith('<HTML')) {
+            resolve({
+              success: false,
+              error: `AI API 返回了 HTML 页面而非 JSON，请检查 API 地址是否正确。\n` +
+                `当前地址: ${apiUrl}\n` +
+                `HTTP 状态码: ${res.statusCode}\n` +
+                `提示: 确保地址指向 /v1/chat/completions 或正确的 API 端点`
+            });
+            return;
+          }
+
           if (res.statusCode === 200) {
             try {
               const jsonData = JSON.parse(data);
@@ -1752,14 +1765,34 @@ function callLLMApi(apiUrl, model, authorization, prompt) {
                 resolve({ success: true, result: jsonData.response });
               } else if (jsonData.content) {
                 resolve({ success: true, result: jsonData.content });
+              } else if (jsonData.error) {
+                // API 返回了错误信息
+                resolve({ success: false, error: `AI API 错误: ${jsonData.error.message || JSON.stringify(jsonData.error)}` });
               } else {
                 resolve({ success: true, result: JSON.stringify(jsonData) });
               }
             } catch (e) {
-              resolve({ success: false, error: '解析 AI 响应失败: ' + e.message });
+              resolve({
+                success: false,
+                error: `解析 AI 响应失败: ${e.message}\n响应内容前200字符: ${data.substring(0, 200)}`
+              });
             }
           } else {
-            resolve({ success: false, error: `AI API 返回错误: HTTP ${res.statusCode} - ${data.substring(0, 200)}` });
+            // 处理非 200 状态码
+            let errorMsg = `AI API 返回错误: HTTP ${res.statusCode}`;
+
+            // 尝试解析错误响应
+            try {
+              const errorJson = JSON.parse(data);
+              if (errorJson.error) {
+                errorMsg += ` - ${errorJson.error.message || JSON.stringify(errorJson.error)}`;
+              }
+            } catch (e) {
+              // 不是 JSON，显示原始内容
+              errorMsg += `\n响应内容: ${data.substring(0, 300)}`;
+            }
+
+            resolve({ success: false, error: errorMsg });
           }
         });
       });
@@ -1805,5 +1838,121 @@ ipcMain.handle('code-review', async (event, { apiUrl, model, authorization, diff
     return result;
   } catch (error) {
     return { success: false, error: `代码审查失败: ${error.message}` };
+  }
+});
+
+// 批量代码审查 Prompt 模板
+function getBatchCodeReviewPrompt() {
+  return `你是一位资深的代码审查专家。请对以下多个提交的代码变更进行整体审查分析。
+
+## 审查要求
+
+1. **整体代码质量评估**：分析这批提交的整体代码质量
+2. **具体问题识别**：针对每个提交，列出发现的具体问题
+3. **共性问题识别**：找出多个提交中重复出现的问题模式
+4. **改进趋势分析**：分析代码是否在逐步改进
+5. **重点关注**：安全漏洞、性能问题、代码规范
+
+## 提交记录汇总
+
+{COMMITS_SUMMARY}
+
+## 输出格式
+
+请按以下格式输出审查结果：
+
+### 📊 整体评估
+X/10 分 - 简要总结这批提交的整体质量
+
+### ⚠️ 具体问题列表
+针对每个存在问题的提交，列出具体问题：
+
+**提交 rXXX (提交信息摘要)**
+- [严重/中等/轻微] 问题描述
+- [严重/中等/轻微] 问题描述
+
+**提交 rYYY (提交信息摘要)**
+- [严重/中等/轻微] 问题描述
+
+（如果某个提交没有发现问题，可以跳过）
+
+### 📈 趋势分析
+分析这批提交的代码质量变化趋势
+
+### 🔴 共性问题
+列出多次出现的问题模式：
+1. 问题描述及出现频率
+2. ...
+
+### 🟡 建议改进
+针对团队/个人的改进建议：
+1. ...
+
+### 🟢 亮点总结
+做得好的方面：
+1. ...
+
+请用中文回复，保持简洁专业。`;
+}
+
+// IPC Handler: 批量代码审查
+ipcMain.handle('batch-code-review', async (event, { apiUrl, model, authorization, commits }) => {
+  try {
+    // 验证参数
+    if (!apiUrl || !model) {
+      return { success: false, error: '请配置 AI API 地址和模型名称' };
+    }
+
+    if (!commits || commits.length === 0) {
+      return { success: false, error: '没有提交记录可供审查' };
+    }
+
+    // 构建提交记录汇总（包含实际代码）
+    let commitsSummary = `共 ${commits.length} 个提交:\n\n`;
+
+    commits.forEach((commit, index) => {
+      commitsSummary += `${'='.repeat(60)}\n`;
+      commitsSummary += `### 提交 ${index + 1}: ${commit.revision}\n`;
+      commitsSummary += `- 日期: ${commit.date.substring(0, 10)}\n`;
+      commitsSummary += `- 类型: ${commit.commitType}\n`;
+      commitsSummary += `- 信息: ${commit.message}\n`;
+      commitsSummary += `- 变更统计: +${commit.added} / -${commit.deleted} (净增 ${commit.net})\n`;
+      commitsSummary += `- 状态: ${commit.status}\n`;
+
+      // 添加实际代码变更
+      if (commit.diffText && commit.diffText !== '(无代码变更)' && commit.diffText !== '(获取代码差异失败)') {
+        commitsSummary += `\n**代码变更:**\n\`\`\`\n${commit.diffText}\n\`\`\`\n`;
+      } else {
+        commitsSummary += `\n**代码变更:** ${commit.diffText || '(未获取)'}\n`;
+      }
+      commitsSummary += '\n';
+    });
+
+    // 统计信息
+    const totalAdded = commits.reduce((sum, c) => sum + c.added, 0);
+    const totalDeleted = commits.reduce((sum, c) => sum + c.deleted, 0);
+    const typeStats = {};
+    commits.forEach(c => {
+      typeStats[c.commitType] = (typeStats[c.commitType] || 0) + 1;
+    });
+
+    commitsSummary += `${'='.repeat(60)}\n`;
+    commitsSummary += `### 统计汇总\n`;
+    commitsSummary += `- 总提交数: ${commits.length}\n`;
+    commitsSummary += `- 总新增行: ${totalAdded}\n`;
+    commitsSummary += `- 总删除行: ${totalDeleted}\n`;
+    commitsSummary += `- 净增行数: ${totalAdded - totalDeleted}\n`;
+    commitsSummary += `- 类型分布: ${Object.entries(typeStats).map(([k, v]) => `${k}(${v})`).join(', ')}\n`;
+
+    // 构建完整 prompt
+    const promptTemplate = getBatchCodeReviewPrompt();
+    const fullPrompt = promptTemplate.replace('{COMMITS_SUMMARY}', commitsSummary);
+
+    // 调用 AI API
+    const result = await callLLMApi(apiUrl, model, authorization, fullPrompt);
+
+    return result;
+  } catch (error) {
+    return { success: false, error: `批量代码审查失败: ${error.message}` };
   }
 });

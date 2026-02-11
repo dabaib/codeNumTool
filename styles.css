@@ -545,6 +545,30 @@ h1 {
   white-space: nowrap;
 }
 
+/* 复选框列 */
+.commits-table .checkbox-col {
+  width: 40px;
+  text-align: center;
+}
+
+.commits-table .checkbox-col input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+/* 已选择计数 */
+.selected-count {
+  margin-left: 10px;
+  font-size: 13px;
+  color: #666;
+}
+
+.selected-count.has-selection {
+  color: #667eea;
+  font-weight: 500;
+}
+
 .commits-table tbody tr:hover {
   background: #f8f9fa;
 }
@@ -1254,6 +1278,11 @@ h1 {
   font-weight: 600;
 }
 
+/* 登录按钮上间距 */
+#loginBtn {
+  margin-top: 20px;
+}
+
 /* Diff 模态框头部操作按钮 */
 .diff-modal-actions {
   display: flex;
@@ -1488,4 +1517,48 @@ h1 {
 
 .commits-table td:last-child {
   white-space: nowrap;
+}
+
+/* 分支搜索输入框 */
+.branch-search-input {
+  width: 100%;
+  padding: 8px 12px;
+  border: 2px solid #e0e0e0;
+  border-radius: 6px 6px 0 0;
+  font-size: 13px;
+  margin-bottom: 0;
+  border-bottom: none;
+}
+
+.branch-search-input:focus {
+  outline: none;
+  border-color: #667eea;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.2);
+}
+
+#branchGroup select {
+  border-radius: 0 0 6px 6px;
+}
+
+/* 批量AI审查区域 */
+.batch-review-section {
+  margin-top: 20px;
+  padding: 15px 20px;
+  background: linear-gradient(135deg, rgba(17, 153, 142, 0.1) 0%, rgba(56, 239, 125, 0.1) 100%);
+  border-radius: 8px;
+  border: 1px dashed #11998e;
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  flex-wrap: wrap;
+}
+
+.batch-review-section .btn-ai-review {
+  padding: 10px 20px;
+  font-size: 14px;
+}
+
+.batch-review-hint {
+  color: #666;
+  font-size: 13px;
 }

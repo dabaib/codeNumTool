@@ -154,6 +154,7 @@
         </div>
         <div class="form-group" id="branchGroup">
           <label for="branch">分支:</label>
+          <input type="text" id="branchSearch" placeholder="搜索分支..." class="branch-search-input">
           <select id="branch" multiple size="5"></select>
         </div>
         <div class="form-group">
@@ -286,6 +287,8 @@
           </div>
           <button id="filterBtn" class="btn btn-small">筛选</button>
           <button id="resetFilterBtn" class="btn btn-small btn-secondary">重置</button>
+          <button id="batchReviewBtn" class="btn btn-small btn-ai-review" title="审查勾选的提交记录">🔍 批量AI审查</button>
+          <span id="selectedCount" class="selected-count"></span>
         </div>
 
         <!-- 提交记录表格 -->
@@ -293,6 +296,7 @@
           <table class="commits-table" id="commitsTable">
             <thead>
               <tr>
+                <th class="checkbox-col"><input type="checkbox" id="selectAllCommits" title="全选/取消全选"></th>
                 <th>项目</th>
                 <th>版本号</th>
                 <th>日期</th>
