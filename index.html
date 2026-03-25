@@ -152,14 +152,80 @@
           <label for="author">提交者账号:</label>
           <input type="text" id="author" placeholder="要统计的用户名">
         </div>
-        <div class="form-group" id="branchGroup">
-          <label for="branch">分支:</label>
-          <input type="text" id="branchSearch" placeholder="搜索分支..." class="branch-search-input">
-          <select id="branch" multiple size="5"></select>
+        <div class="form-group" id="branchGroup" style="width: 300px; max-width: 100%;">
+          <label>分支:</label>
+          <div class="el-select" id="branchCustomSelect">
+            <div class="el-select__tags" id="branchSelectTags">
+              <span class="placeholder" style="color: #c0c4cc; font-size: 14px; padding-left: 8px;">请选择分支</span>
+            </div>
+            <i class="el-select__caret" id="branchSelectCaret">▼</i>
+            <div class="el-select-dropdown" id="branchSelectDropdown" style="display: none;">
+              <input type="text" id="branchSearch" placeholder="搜索分支..." class="el-input__inner" style="height: 32px; line-height: 32px; margin: 8px; width: calc(100% - 16px);">
+              <div class="el-select-dropdown__wrap" id="branchOptionsList">
+              </div>
+            </div>
+          </div>
+          <select id="branch" multiple class="hidden"></select>
         </div>
+
         <div class="form-group">
-          <label for="yearMonth">选择月份:</label>
-          <input type="month" id="yearMonth">
+          <label>统计周期:</label>
+          <input type="hidden" id="queryMode" value="month">
+          <div class="query-mode-toggle" style="margin-bottom: 10px;">
+            <button type="button" class="query-mode-btn active" data-mode="month" style="padding: 6px 12px; font-size: 13px; cursor: pointer;">按月</button>
+            <button type="button" class="query-mode-btn" data-mode="quarter" style="padding: 6px 12px; font-size: 13px; cursor: pointer;">按季</button>
+            <button type="button" class="query-mode-btn" data-mode="custom" style="padding: 6px 12px; font-size: 13px; cursor: pointer;">自定义</button>
+          </div>
+          
+                    <div id="monthQueryGroup">
+            <div class="el-date-editor custom-picker" id="customMonthPicker" style="width: 150px; position: relative;">
+               <input type="text" id="monthDisplay" class="el-input__inner" readonly placeholder="选择月份" style="padding-left: 30px; cursor: pointer; user-select: none;">
+               <span class="el-input__prefix"><i style="font-style:normal; line-height:36px; margin-left:8px; color:#c0c4cc; font-size: 14px;">📅</i></span>
+               <div class="el-picker-panel hidden" id="monthDropdown">
+                  <div class="el-picker-panel__header">
+                     <button type="button" class="el-picker-panel__icon-btn" id="monthPrevYear">«</button>
+                     <span class="el-picker-panel__header-label" id="monthYearLabel">2026 年</span>
+                     <button type="button" class="el-picker-panel__icon-btn" id="monthNextYear">»</button>
+                  </div>
+                  <div class="el-picker-panel__content">
+                     <table class="el-month-table">
+                       <tbody id="monthTableBody"></tbody>
+                     </table>
+                  </div>
+               </div>
+               <input type="hidden" id="yearMonth" value="2026-03">
+            </div>
+          </div>
+          
+          <div id="quarterQueryGroup" class="hidden" style="display: flex; gap: 10px;">
+            <div class="el-date-editor custom-picker" id="customQuarterPicker" style="width: 150px; position: relative;">
+               <input type="text" id="quarterDisplay" class="el-input__inner" readonly placeholder="选择季度" style="padding-left: 30px; cursor: pointer; user-select: none;">
+               <span class="el-input__prefix"><i style="font-style:normal; line-height:36px; margin-left:8px; color:#c0c4cc; font-size: 14px;">📅</i></span>
+               <div class="el-picker-panel hidden" id="quarterDropdown">
+                  <div class="el-picker-panel__header">
+                     <button type="button" class="el-picker-panel__icon-btn" id="quarterPrevYear">«</button>
+                     <span class="el-picker-panel__header-label" id="quarterYearLabel">2026 年</span>
+                     <button type="button" class="el-picker-panel__icon-btn" id="quarterNextYear">»</button>
+                  </div>
+                  <div class="el-picker-panel__content">
+                     <table class="el-month-table">
+                       <tbody id="quarterTableBody"></tbody>
+                     </table>
+                  </div>
+               </div>
+               <input type="hidden" id="quarterYearStr" value="2026">
+               <input type="hidden" id="quarterQuarterStr" value="1">
+            </div>
+          </div>
+          <div id="customQueryGroup" class="hidden" style="display: flex; align-items: center; gap: 10px;">
+            <span class="date-input-wrapper" style="width: 150px; display: inline-block;">
+              <input type="date" id="customStartDate" class="el-input__inner" style="width: 100%;">
+            </span>
+            <span style="color: #606266;">至</span>
+            <span class="date-input-wrapper" style="width: 150px; display: inline-block;">
+              <input type="date" id="customEndDate" class="el-input__inner" style="width: 100%;">
+            </span>
+          </div>
         </div>
       </div>
       <button id="queryBtn" class="btn btn-primary">查询统计</button>

@@ -1,3 +1,7 @@
+window.onerror = function(msg, url, lineNo, columnNo, error) {
+    require('fs').appendFileSync('renderer-error.log', ['\n', new Date(), msg, url, lineNo, columnNo, error ? error.stack : ''].join('|'));
+    return false;
+  };
 // DOM元素
 const loginCard = document.getElementById('loginCard');
 const statsCard = document.getElementById('statsCard');
@@ -39,6 +43,15 @@ const branchInput = document.getElementById('branch');
 const branchSearchInput = document.getElementById('branchSearch');
 const branchGroup = document.getElementById('branchGroup');
 const yearMonthInput = document.getElementById('yearMonth');
+const queryModeBtns = document.querySelectorAll('.query-mode-btn');
+const queryModeInput = document.getElementById('queryMode');
+const monthQueryGroup = document.getElementById('monthQueryGroup');
+const quarterQueryGroup = document.getElementById('quarterQueryGroup');
+const customQueryGroup = document.getElementById('customQueryGroup');
+const quarterYearStr = document.getElementById('quarterYearStr');
+const quarterQuarterStr = document.getElementById('quarterQuarterStr');
+const customStartDate = document.getElementById('customStartDate');
+const customEndDate = document.getElementById('customEndDate');
 const queryBtn = document.getElementById('queryBtn');
 const changeConnBtn = document.getElementById('changeConnBtn');
 const queryStatus = document.getElementById('queryStatus');
@@ -245,67 +258,274 @@ const selectedCountEl = document.getElementById('selectedCount');
 
 // 存储所有分支（用于搜索过滤）
 let allBranches = [];
+let selectedBranchesSet = new Set(['main', 'master']); // 默认选择
 
-// 分支搜索过滤功能
+const branchCustomSelect = document.getElementById('branchCustomSelect');
+const branchSelectTags = document.getElementById('branchSelectTags');
+const branchSelectDropdown = document.getElementById('branchSelectDropdown');
+const branchOptionsList = document.getElementById('branchOptionsList');
+const branchSelectCaret = document.getElementById('branchSelectCaret');
+
+// 修改点击空白收起下拉框
+document.addEventListener('click', (e) => {
+  if (branchCustomSelect && !branchCustomSelect.contains(e.target)) {
+    if (branchSelectDropdown) branchSelectDropdown.style.display = 'none';
+    if (branchSelectTags) branchSelectTags.classList.remove('is-focus');
+    if (branchSelectCaret) branchSelectCaret.classList.remove('is-reverse');
+  }
+});
+
+if (branchSelectTags) {
+  branchSelectTags.addEventListener('click', () => {
+    const isHidden = branchSelectDropdown.style.display === 'none';
+    branchSelectDropdown.style.display = isHidden ? 'block' : 'none';
+    if (isHidden) {
+      branchSelectTags.classList.add('is-focus');
+      branchSelectCaret.classList.add('is-reverse');
+      if (branchSearchInput) branchSearchInput.focus();
+    } else {
+      branchSelectTags.classList.remove('is-focus');
+      branchSelectCaret.classList.remove('is-reverse');
+    }
+  });
+}
+
 if (branchSearchInput) {
   branchSearchInput.addEventListener('input', (e) => {
     const searchTerm = e.target.value.toLowerCase().trim();
-    filterBranchOptions(searchTerm);
+    renderBranchOptions(searchTerm);
   });
 }
 
-// 过滤分支选项
-function filterBranchOptions(searchTerm) {
-  if (!branchInput) return;
-
-  // 保存当前选中的分支
-  const selectedBranches = Array.from(branchInput.selectedOptions).map(opt => opt.value);
-
-  // 清空并重新填充
-  branchInput.innerHTML = '';
-
-  const filteredBranches = searchTerm
-    ? allBranches.filter(b => b.toLowerCase().includes(searchTerm))
-    : allBranches;
-
-  filteredBranches.forEach((branchName) => {
-    const option = document.createElement('option');
-    option.value = branchName;
-    option.textContent = branchName;
-    // 恢复之前的选中状态
-    if (selectedBranches.includes(branchName)) {
-      option.selected = true;
-    }
-    branchInput.appendChild(option);
-  });
-}
-
-// 填充分支选项（供其他地方调用）
-function populateBranchOptions(branches) {
-  allBranches = branches;
-  branchInput.innerHTML = '';
-  if (branchSearchInput) {
-    branchSearchInput.value = '';
+function updateBranchTags() {
+  // 同步原生select对象
+  if (branchInput) {
+    branchInput.innerHTML = '';
+    selectedBranchesSet.forEach(b => {
+      const opt = document.createElement('option');
+      opt.value = b;
+      opt.selected = true;
+      branchInput.appendChild(opt);
+    });
   }
 
-  branches.forEach((branchName, index) => {
-    const option = document.createElement('option');
-    option.value = branchName;
-    option.textContent = branchName;
-    if (branchName === 'main' || branchName === 'master' || index === 0) {
-      option.selected = true;
+  // 更新UI显示
+  if (branchSelectTags) {
+    branchSelectTags.innerHTML = '';
+    if (selectedBranchesSet.size === 0) {
+      branchSelectTags.innerHTML = '<span class="placeholder" style="color: #c0c4cc; font-size: 14px; padding-left: 8px;">请选择分支</span>';
+    } else {
+      selectedBranchesSet.forEach(b => {
+        const tag = document.createElement('span');
+        tag.className = 'el-tag';
+        tag.innerHTML = b + ' <i class="el-tag__close">×</i>';
+        tag.querySelector('.el-tag__close').addEventListener('click', (e) => {
+          e.stopPropagation();
+          selectedBranchesSet.delete(b);
+          updateBranchTags();
+          renderBranchOptions(branchSearchInput ? branchSearchInput.value : '');
+        });
+        branchSelectTags.appendChild(tag);
+      });
     }
-    branchInput.appendChild(option);
+  }
+}
+
+function renderBranchOptions(searchTerm = '') {
+  if (!branchOptionsList) return;
+  branchOptionsList.innerHTML = '';
+  const filtered = searchTerm ? allBranches.filter(b => b.toLowerCase().includes(searchTerm)) : allBranches;
+  
+  filtered.forEach(branchName => {
+    const item = document.createElement('div');
+    const isSelected = selectedBranchesSet.has(branchName);
+    item.className = 'el-select-dropdown__item ' + (isSelected ? 'selected' : '');
+    item.textContent = branchName;
+    item.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (isSelected) {
+        selectedBranchesSet.delete(branchName);
+      } else {
+        selectedBranchesSet.add(branchName);
+      }
+      updateBranchTags();
+      renderBranchOptions(searchTerm);
+    });
+    branchOptionsList.appendChild(item);
   });
+}
+
+function populateBranchOptions(branches) {
+  allBranches = branches || [];
+  selectedBranchesSet.clear();
+  // 默认选中
+  if (allBranches.includes('main')) selectedBranchesSet.add('main');
+  else if (allBranches.includes('master')) selectedBranchesSet.add('master');
+  else if (allBranches.length > 0) selectedBranchesSet.add(allBranches[0]);
+  
+  if (branchSearchInput) branchSearchInput.value = '';
+  updateBranchTags();
+  renderBranchOptions('');
 }
 
 // 图表实例
 let lineChart = null;
 let barChart = null;
 
-// 初始化日期选择器为当前月份
+// 初始化查询模式切换
+queryModeBtns.forEach(btn => {
+  btn.addEventListener('click', () => {
+    queryModeBtns.forEach(b => b.classList.remove('active', 'btn-primary'));
+    btn.classList.add('active', 'btn-primary');
+    const mode = btn.dataset.mode;
+    queryModeInput.value = mode;
+    
+    monthQueryGroup.classList.add('hidden');
+    quarterQueryGroup.classList.add('hidden');
+    customQueryGroup.classList.add('hidden');
+    
+    if (mode === 'month') {
+      monthQueryGroup.classList.remove('hidden');
+    } else if (mode === 'quarter') {
+      quarterQueryGroup.classList.remove('hidden');
+    } else {
+      customQueryGroup.classList.remove('hidden');
+    }
+  });
+});
+
+
+// ========================== 自定义日期弹窗逻辑 ==========================
+const customMonthPicker = document.getElementById('customMonthPicker');
+const monthDisplay = document.getElementById('monthDisplay');
+const monthDropdown = document.getElementById('monthDropdown');
+const monthYearLabel = document.getElementById('monthYearLabel');
+const monthPrevYear = document.getElementById('monthPrevYear');
+const monthNextYear = document.getElementById('monthNextYear');
+const monthTableBody = document.getElementById('monthTableBody');
+const yearMonthHidden = document.getElementById('yearMonth');
+
+const customQuarterPicker = document.getElementById('customQuarterPicker');
+const quarterDisplay = document.getElementById('quarterDisplay');
+const quarterDropdown = document.getElementById('quarterDropdown');
+const quarterYearLabel = document.getElementById('quarterYearLabel');
+const quarterPrevYear = document.getElementById('quarterPrevYear');
+const quarterNextYear = document.getElementById('quarterNextYear');
+const quarterTableBody = document.getElementById('quarterTableBody');
+const quarterYearStrHidden = document.getElementById('quarterYearStr');
+const quarterQuarterStrHidden = document.getElementById('quarterQuarterStr');
+
+let selectedMonthYear = new Date().getFullYear();
+let selectedMonthVal = new Date().getMonth() + 1; 
+let viewMonthYear = selectedMonthYear;
+
+let selectedQuarterYear = new Date().getFullYear();
+let selectedQuarterVal = Math.floor(new Date().getMonth() / 3) + 1; 
+let viewQuarterYear = selectedQuarterYear;
+
+document.addEventListener('click', (e) => {
+  if (customMonthPicker && !customMonthPicker.contains(e.target)) {
+    if (monthDropdown) monthDropdown.classList.add('hidden');
+  }
+  if (customQuarterPicker && !customQuarterPicker.contains(e.target)) {
+    if (quarterDropdown) quarterDropdown.classList.add('hidden');
+  }
+});
+
+function renderMonthDropdown() {
+  if (!monthYearLabel) return;
+  monthYearLabel.textContent = `${viewMonthYear} 年`;
+  monthTableBody.innerHTML = '';
+  let html = '';
+  let m = 1;
+  for (let i = 0; i < 3; i++) {
+    html += '<tr>';
+    for (let j = 0; j < 4; j++) {
+      const isSelected = (viewMonthYear === selectedMonthYear && m === selectedMonthVal);
+      html += `<td data-month="${m}" class="${isSelected ? 'current' : ''}"><div class="cell">${m}月</div></td>`;
+      m++;
+    }
+    html += '</tr>';
+  }
+  monthTableBody.innerHTML = html;
+  monthTableBody.querySelectorAll('td').forEach(td => {
+    td.addEventListener('click', (e) => {
+      e.stopPropagation();
+      selectedMonthVal = parseInt(td.dataset.month);
+      selectedMonthYear = viewMonthYear;
+      updateMonthDisplay();
+      monthDropdown.classList.add('hidden');
+    });
+  });
+}
+
+function updateMonthDisplay() {
+  if(!yearMonthHidden) return;
+  const val = `${selectedMonthYear}-${String(selectedMonthVal).padStart(2, '0')}`;
+  yearMonthHidden.value = val;
+  monthDisplay.value = val;
+}
+
+if (monthDisplay) {
+  monthDisplay.addEventListener('click', () => {
+    monthDropdown.classList.toggle('hidden');
+    viewMonthYear = selectedMonthYear;
+    renderMonthDropdown();
+  });
+  monthPrevYear.addEventListener('click', (e) => { e.stopPropagation(); viewMonthYear--; renderMonthDropdown(); });
+  monthNextYear.addEventListener('click', (e) => { e.stopPropagation(); viewMonthYear++; renderMonthDropdown(); });
+  updateMonthDisplay();
+  renderMonthDropdown();
+}
+
+function renderQuarterDropdown() {
+  if (!quarterYearLabel) return;
+  quarterYearLabel.textContent = `${viewQuarterYear} 年`;
+  quarterTableBody.innerHTML = '';
+  let html = '<tr>';
+  for (let q = 1; q <= 4; q++) {
+    const isSelected = (viewQuarterYear === selectedQuarterYear && q === selectedQuarterVal);
+    html += `<td data-quarter="${q}" class="${isSelected ? 'current' : ''}"><div class="cell">Q${q}</div></td>`;
+  }
+  html += '</tr>';
+  quarterTableBody.innerHTML = html;
+  quarterTableBody.querySelectorAll('td').forEach(td => {
+    td.addEventListener('click', (e) => {
+      e.stopPropagation();
+      selectedQuarterVal = parseInt(td.dataset.quarter);
+      selectedQuarterYear = viewQuarterYear;
+      updateQuarterDisplay();
+      quarterDropdown.classList.add('hidden');
+    });
+  });
+}
+
+function updateQuarterDisplay() {
+  if(!quarterYearStrHidden) return;
+  quarterYearStrHidden.value = selectedQuarterYear;
+  quarterQuarterStrHidden.value = selectedQuarterVal;
+  quarterDisplay.value = `${selectedQuarterYear}年 Q${selectedQuarterVal}`;
+}
+
+if (quarterDisplay) {
+  quarterDisplay.addEventListener('click', () => {
+    quarterDropdown.classList.toggle('hidden');
+    viewQuarterYear = selectedQuarterYear;
+    renderQuarterDropdown();
+  });
+  quarterPrevYear.addEventListener('click', (e) => { e.stopPropagation(); viewQuarterYear--; renderQuarterDropdown(); });
+  quarterNextYear.addEventListener('click', (e) => { e.stopPropagation(); viewQuarterYear++; renderQuarterDropdown(); });
+  updateQuarterDisplay();
+  renderQuarterDropdown();
+}
+// ========================================================================
+
+// 初始化自定义日期格式为最近一周
 const now = new Date();
-yearMonthInput.value = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+const lastWeek = new Date(now);
+lastWeek.setDate(now.getDate() - 7);
+customEndDate.value = now.toISOString().substring(0, 10);
+customStartDate.value = lastWeek.toISOString().substring(0, 10);
 
 // 项目索引计数器
 let projectIndex = 1;
@@ -466,14 +686,55 @@ changeConnBtn.addEventListener('click', () => {
 // 查询按钮点击事件
 queryBtn.addEventListener('click', async () => {
   const author = authorInput.value.trim();
-  const yearMonth = yearMonthInput.value;
 
-  if (!author || !yearMonth) {
-    showStatus(queryStatus, '请填写提交者账号并选择月份', 'error');
+  let year, month;
+  let startDateStr = '';
+  let endDateStr = '';
+  const mode = queryModeInput.value;
+
+  if (!author) {
+    showStatus(queryStatus, '请填写提交者账号', 'error');
     return;
   }
 
-  const [year, month] = yearMonth.split('-').map(Number);
+  if (mode === 'month') {
+    const yearMonth = yearMonthInput.value;
+    if (!yearMonth) {
+      showStatus(queryStatus, '请选择月份', 'error');
+      return;
+    }
+    const [y, m] = yearMonth.split('-').map(Number);
+    year = y; month = m;
+    const lastDay = new Date(year, month, 0).getDate();
+    startDateStr = `${year}-${String(month).padStart(2, '0')}-01`;
+    endDateStr = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+  } else if (mode === 'quarter') {
+    const y = parseInt(quarterYearStr.value);
+    const q = parseInt(quarterQuarterStr.value);
+    year = y; 
+    month = q * 3; // fallback 随意指定月份保持签名正常
+    const startMonth = (q - 1) * 3 + 1;
+    const endMonth = q * 3;
+    const lastDay = new Date(y, endMonth, 0).getDate();
+    startDateStr = `${y}-${String(startMonth).padStart(2, '0')}-01`;
+    endDateStr = `${y}-${String(endMonth).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+  } else {
+    // custom
+    startDateStr = customStartDate.value;
+    endDateStr = customEndDate.value;
+    if (!startDateStr || !endDateStr) {
+      showStatus(queryStatus, '请选择完整的日期查询范围', 'error');
+      return;
+    }
+    if (new Date(startDateStr) > new Date(endDateStr)) {
+      showStatus(queryStatus, '开始日期不能大于结束日期', 'error');
+      return;
+    }
+    const d = new Date(startDateStr);
+    year = d.getFullYear();
+    month = d.getMonth() + 1;
+  }
+
   const branches = Array.from(branchInput.selectedOptions).map(opt => opt.value).filter(Boolean);
 
   queryBtn.disabled = true;
@@ -492,7 +753,9 @@ queryBtn.addEventListener('click', async () => {
         year,
         month,
         connectionConfig.threshold,
-        connectionConfig.formatThreshold
+        connectionConfig.formatThreshold,
+        startDateStr,
+        endDateStr
       );
 
     } else { // GitLab 模式
@@ -508,7 +771,9 @@ queryBtn.addEventListener('click', async () => {
           year,
           month,
           threshold: connectionConfig.threshold,
-          formatThreshold: connectionConfig.formatThreshold
+          formatThreshold: connectionConfig.formatThreshold,
+          startDate: startDateStr,
+          endDate: endDateStr
         });
       } else {
         // SSH 远程模式查询
@@ -520,7 +785,9 @@ queryBtn.addEventListener('click', async () => {
           year,
           month,
           threshold: connectionConfig.threshold,
-          formatThreshold: connectionConfig.formatThreshold
+          formatThreshold: connectionConfig.formatThreshold,
+          startDate: startDateStr,
+          endDate: endDateStr
         });
       }
     }

@@ -6,7 +6,7 @@
 
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: #409eff;
   min-height: 100vh;
   padding: 20px;
 }
@@ -60,9 +60,8 @@ h1 {
 .form-group input,
 .form-group select {
   width: 100%;
-  padding: 12px 15px;
-  border: 2px solid #e0e0e0;
-  border-radius: 8px;
+  padding: 8px 15px;
+  border: 1px solid #dcdfe6; border-radius: 4px; color: #606266; padding: 0 15px; height: 36px; box-sizing: border-box;
   font-size: 14px;
   transition: border-color 0.3s, box-shadow 0.3s;
 }
@@ -70,8 +69,8 @@ h1 {
 .form-group input:focus,
 .form-group select:focus {
   outline: none;
-  border-color: #667eea;
-  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.2);
+  border-color: #409eff;
+  box-shadow: 0 0 0 2px rgba(64,158,255,.2); border-color: #409eff;
 }
 
 .form-row {
@@ -98,23 +97,21 @@ h1 {
 .project-row .project-name {
   flex: 1;
   padding: 10px 12px;
-  border: 2px solid #e0e0e0;
-  border-radius: 8px;
+  border: 1px solid #dcdfe6; border-radius: 4px; color: #606266; padding: 0 15px; height: 36px; box-sizing: border-box;
   font-size: 14px;
 }
 
 .project-row .project-url {
   flex: 3;
   padding: 10px 12px;
-  border: 2px solid #e0e0e0;
-  border-radius: 8px;
+  border: 1px solid #dcdfe6; border-radius: 4px; color: #606266; padding: 0 15px; height: 36px; box-sizing: border-box;
   font-size: 14px;
 }
 
 .project-row input:focus {
   outline: none;
-  border-color: #667eea;
-  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.2);
+  border-color: #409eff;
+  box-shadow: 0 0 0 2px rgba(64,158,255,.2); border-color: #409eff;
 }
 
 .btn-icon {
@@ -142,7 +139,7 @@ h1 {
 .btn {
   padding: 12px 30px;
   border: none;
-  border-radius: 8px;
+  border-radius: 4px;
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
@@ -156,13 +153,13 @@ h1 {
 }
 
 .btn-primary {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: #409eff;
   color: white;
 }
 
 .btn-primary:hover {
   transform: translateY(-2px);
-  box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+  box-shadow: 0 2px 10px rgba(64,158,255,0.4);
 }
 
 .btn-primary:disabled {
@@ -235,7 +232,7 @@ h1 {
 }
 
 .project-tab.active {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: #409eff;
   color: white;
   border-color: transparent;
 }
@@ -248,7 +245,7 @@ h1 {
 }
 
 .stat-item {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: #409eff;
   padding: 20px;
   border-radius: 10px;
   text-align: center;
@@ -290,7 +287,7 @@ h1 {
 .stat-item-small {
   flex: 1;
   padding: 12px 20px;
-  border-radius: 8px;
+  border-radius: 4px;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -354,7 +351,7 @@ h1 {
 }
 
 .vcs-btn.active {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: #409eff;
   color: white;
 }
 
@@ -384,7 +381,7 @@ h1 {
   margin-top: 20px;
   padding: 15px;
   background: #fafafa;
-  border-radius: 8px;
+  border-radius: 4px;
 }
 
 /* 项目统计表格区域 */
@@ -395,7 +392,7 @@ h1 {
 
 .project-stats-table-wrapper {
   overflow-x: auto;
-  border-radius: 8px;
+  border-radius: 4px;
   border: 1px solid #e0e0e0;
 }
 
@@ -407,13 +404,13 @@ h1 {
 
 .project-stats-table th,
 .project-stats-table td {
-  padding: 12px 15px;
+  padding: 8px 15px;
   text-align: center;
   border-bottom: 1px solid #e0e0e0;
 }
 
 .project-stats-table th {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: #409eff;
   color: white;
   font-weight: 600;
   white-space: nowrap;
@@ -487,7 +484,7 @@ h1 {
   align-items: flex-end;
   padding: 15px;
   background: #f5f5f5;
-  border-radius: 8px;
+  border-radius: 4px;
   margin-bottom: 15px;
 }
 
@@ -515,13 +512,13 @@ h1 {
 .filter-group select:focus,
 .filter-group input:focus {
   outline: none;
-  border-color: #667eea;
+  border-color: #409eff;
 }
 
 /* 提交记录表格 */
 .commits-table-wrapper {
   overflow-x: auto;
-  border-radius: 8px;
+  border-radius: 4px;
   border: 1px solid #e0e0e0;
 }
 
@@ -700,7 +697,7 @@ h1 {
 .page-btn.active {
   background: #667eea;
   color: white;
-  border-color: #667eea;
+  border-color: #409eff;
 }
 
 .page-btn:disabled {
@@ -778,9 +775,9 @@ h1 {
 }
 
 .gitlab-mode-btn.active {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: #409eff;
   color: white;
-  border-color: #667eea;
+  border-color: #409eff;
 }
 
 .gitlab-mode-btn:hover:not(.active) {
@@ -794,7 +791,7 @@ h1 {
   margin-bottom: 15px;
   padding: 10px 15px;
   background: linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%);
-  border-radius: 8px;
+  border-radius: 4px;
   border-left: 4px solid #667eea;
 }
 
@@ -810,7 +807,7 @@ h1 {
 .project-info {
   padding: 12px 16px;
   background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%);
-  border-radius: 8px;
+  border-radius: 4px;
   margin-top: 12px;
   border-left: 4px solid #28a745;
 }
@@ -850,7 +847,7 @@ h1 {
   color: #856404;
   background: #fff3cd;
   padding: 10px 15px;
-  border-radius: 8px;
+  border-radius: 4px;
   margin-bottom: 15px;
   border-left: 4px solid #ffc107;
 }
@@ -894,7 +891,7 @@ h1 {
   align-items: center;
   padding: 15px 20px;
   border-bottom: 1px solid #e0e0e0;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: #409eff;
   border-radius: 12px 12px 0 0;
 }
 
@@ -965,7 +962,7 @@ h1 {
   color: #721c24;
   background: #f8d7da;
   padding: 15px 20px;
-  border-radius: 8px;
+  border-radius: 4px;
   border-left: 4px solid #dc3545;
 }
 
@@ -974,7 +971,7 @@ h1 {
   padding: 30px;
   text-align: center;
   background: #fff3cd;
-  border-radius: 8px;
+  border-radius: 4px;
   margin: 20px;
 }
 
@@ -988,7 +985,7 @@ h1 {
   margin-bottom: 20px;
   padding: 15px;
   background: #f8f9fa;
-  border-radius: 8px;
+  border-radius: 4px;
 }
 
 .diff-file-list-title {
@@ -1061,7 +1058,7 @@ h1 {
 .diff-file-block {
   margin-bottom: 20px;
   border: 1px solid #e0e0e0;
-  border-radius: 8px;
+  border-radius: 4px;
   overflow: hidden;
 }
 
@@ -1216,7 +1213,7 @@ h1 {
 .btn-view-diff {
   padding: 4px 10px;
   font-size: 12px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: #409eff;
   color: white;
   border: none;
   border-radius: 4px;
@@ -1438,7 +1435,7 @@ h1 {
   color: #721c24;
   background: #f8d7da;
   padding: 15px 20px;
-  border-radius: 8px;
+  border-radius: 4px;
   border-left: 4px solid #dc3545;
 }
 
@@ -1497,7 +1494,7 @@ h1 {
   background: #2d2d2d;
   color: #f8f8f2;
   padding: 15px;
-  border-radius: 8px;
+  border-radius: 4px;
   overflow-x: auto;
   margin: 15px 0;
 }
@@ -1532,8 +1529,8 @@ h1 {
 
 .branch-search-input:focus {
   outline: none;
-  border-color: #667eea;
-  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.2);
+  border-color: #409eff;
+  box-shadow: 0 0 0 2px rgba(64,158,255,.2); border-color: #409eff;
 }
 
 #branchGroup select {
@@ -1545,7 +1542,7 @@ h1 {
   margin-top: 20px;
   padding: 15px 20px;
   background: linear-gradient(135deg, rgba(17, 153, 142, 0.1) 0%, rgba(56, 239, 125, 0.1) 100%);
-  border-radius: 8px;
+  border-radius: 4px;
   border: 1px dashed #11998e;
   display: flex;
   align-items: center;
@@ -1562,3 +1559,93 @@ h1 {
   color: #666;
   font-size: 13px;
 }
+
+/* ========== Element UI 风格多选下拉框 ========== */
+.el-select { position: relative; width: 100%; }
+.el-select__tags { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px 8px; min-height: 36px; background-color: #fff; border: 1px solid #dcdfe6; border-radius: 4px; cursor: pointer; align-items: center; transition: border-color .2s; }
+.el-select__tags:hover { border-color: #c0c4cc; }
+.el-select__tags.is-focus { border-color: #409eff; }
+.el-tag { background-color: #f4f4f5; border-color: #e9e9eb; color: #909399; display: inline-flex; align-items: center; height: 24px; padding: 0 8px; font-size: 12px; border-radius: 4px; border: 1px solid #e9e9eb; }
+.el-tag__close { color: #909399; background-color: transparent; border-radius: 50%; text-align: center; cursor: pointer; font-size: 12px; height: 16px; width: 16px; line-height: 16px; margin-left: 5px; }
+.el-tag__close:hover { background-color: #909399; color: #fff; }
+.el-select-dropdown { position: absolute; z-index: 1001; border: 1px solid #e4e7ed; border-radius: 4px; background-color: #fff; box-shadow: 0 2px 12px 0 rgba(0,0,0,.1); margin: 5px 0; width: 100%; max-height: 274px; }
+.el-select-dropdown__wrap { max-height: 230px; overflow-y: auto; padding: 6px 0; }
+.el-select-dropdown__item { font-size: 14px; padding: 0 20px; position: relative; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #606266; height: 34px; line-height: 34px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; }
+.el-select-dropdown__item:hover { background-color: #f5f7fa; }
+.el-select-dropdown__item.selected { color: #409eff; font-weight: 700; }
+.el-select-dropdown__item.selected::after { content: '✓'; font-size: 14px; }
+.el-input__inner { appearance: none; background-color: #fff; border-radius: 4px; border: 1px solid #dcdfe6; color: #606266; height: 36px; line-height: 36px; outline: none; padding: 0 15px; width: 100%; transition: border-color .2s; }
+.el-select__caret { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); color: #c0c4cc; font-size: 12px; transition: transform .3s; pointer-events: none; }
+.el-select__caret.is-reverse { transform: translateY(-50%) rotate(180deg); }
+.query-mode-toggle { display: inline-flex; align-items: center; }
+.query-mode-toggle .query-mode-btn { border: 1px solid #dcdfe6; background: #fff; color: #606266; transition: 0.1s; margin-right: -1px; }
+.query-mode-toggle .query-mode-btn:first-child { border-radius: 4px 0 0 4px; }
+.query-mode-toggle .query-mode-btn:last-child { border-radius: 0 4px 4px 0; }
+.query-mode-toggle .query-mode-btn.active { background-color: #409eff; border-color: #409eff; color: #fff; z-index: 1; }
+
+/* ======== 自定义滚动条 (仿 Element UI) ======== */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { background-color: #c0c4cc; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background-color: #909399; }
+::-webkit-scrollbar-track { background: transparent; }
+
+/* ======== 强制加强的下拉框/日期控件优化 ======== */
+.form-group select.el-input__inner {
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  background: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" fill="%23C0C4CC"><path d="M831.872 340.864L512 652.672 192.128 340.864a30.592 30.592 0 0 0-42.752 0 29.12 29.12 0 0 0 0 41.6L489.216 714.24a32 32 0 0 0 44.8 0l339.84-331.776a29.12 29.12 0 0 0 0-41.6 30.592 30.592 0 0 0-41.984 0z"/></svg>') no-repeat right 10px center / 14px 14px #fff !important;
+  padding-right: 30px !important;
+  cursor: pointer !important;
+}
+
+.date-input-wrapper {
+  position: relative;
+  display: inline-block;
+}
+
+.date-input-wrapper::before {
+  content: '📅'; 
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 14px;
+  pointer-events: none;
+  opacity: 0.5;
+  z-index: 10;
+}
+
+.form-group input[type="month"].el-input__inner,
+.form-group input[type="date"].el-input__inner {
+  padding-right: 30px !important;
+  background-color: #fff !important;
+}
+
+.form-group input[type="month"].el-input__inner::-webkit-calendar-picker-indicator,
+.form-group input[type="date"].el-input__inner::-webkit-calendar-picker-indicator {
+  background: transparent !important;
+  color: transparent !important;
+  bottom: 0;
+  top: 0;
+  left: 0;
+  right: 0;
+  position: absolute;
+  width: auto;
+  height: auto;
+  cursor: pointer;
+  opacity: 0;
+}
+
+/* ========== 原生改写的 UI 月份/季度弹窗 ========== */
+.el-picker-panel { position: absolute; top: 40px; left: 0; z-index: 2000; width: 260px; background: #fff; border: 1px solid #e4e7ed; box-shadow: 0 2px 12px 0 rgba(0,0,0,.1); border-radius: 4px; padding: 10px; margin-top: 5px; cursor: default; }
+.el-picker-panel__header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; padding: 0 5px; }
+.el-picker-panel__icon-btn { background: transparent; border: none; cursor: pointer; font-size: 16px; color: #606266; outline: none; padding: 0 5px; }
+.el-picker-panel__icon-btn:hover { color: #409eff; }
+.el-picker-panel__header-label { font-size: 14px; font-weight: 500; color: #606266; }
+.el-picker-panel__content { width: 100%; }
+.el-month-table { width: 100%; border-collapse: collapse; }
+.el-month-table td { text-align: center; padding: 15px 0; cursor: pointer; }
+.el-month-table td .cell { display: inline-block; width: 48px; height: 28px; line-height: 28px; border-radius: 14px; color: #606266; font-size: 13px; transition: all .2s; }
+.el-month-table td:hover .cell { background: #f0f9eb; color: #409eff; }
+.el-month-table td.current .cell { background: #409eff; color: #fff; font-weight: bold; }
+.el-input__prefix { position: absolute; left: 0; top: 0; width: 30px; height: 100%; text-align: center; color: #c0c4cc; }

@@ -203,13 +203,14 @@ function getCommitStatus(added, deleted, threshold, formatThreshold) {
 }
 
 // 获取用户提交统计（SVN）
-ipcMain.handle('svn-stats', async (event, { projects, username, password, author, year, month, threshold, formatThreshold }) => {
+ipcMain.handle('svn-stats', async (event, { projects, username, password, author, year, month, threshold, formatThreshold, startDate, endDate }) => {
   try {
     // 计算日期范围
-    const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
+    const startD = startDate || `${year}-${String(month).padStart(2, '0')}-01`;
     const endMonth = month === 12 ? 1 : month + 1;
     const endYear = month === 12 ? year + 1 : year;
-    const endDate = `${endYear}-${String(endMonth).padStart(2, '0')}-01`;
+    const endD = endDate || `${endYear}-${String(endMonth).padStart(2, '0')}-01`;
+    // We will use local vars startD and endD in queries
 
     const allCommits = [];
     const projectStats = {};
@@ -220,7 +221,7 @@ ipcMain.handle('svn-stats', async (event, { projects, username, password, author
     for (const project of projects) {
       try {
         // 获取该用户在指定时间范围内的提交记录
-        const logCommand = `svn log "${project.url}" --username "${username}" --password "${password}" --non-interactive --trust-server-cert-failures=unknown-ca,cn-mismatch,expired,not-yet-valid,other -r {${startDate}}:{${endDate}} --search "${author}" --xml`;
+        const logCommand = `svn log "${project.url}" --username "${username}" --password "${password}" --non-interactive --trust-server-cert-failures=unknown-ca,cn-mismatch,expired,not-yet-valid,other -r {${startD}}:{${endD}} --search "${author}" --xml`;
 
         const logOutput = await runSvnCommand(logCommand);
 
@@ -332,12 +333,21 @@ ipcMain.handle('svn-stats', async (event, { projects, username, password, author
     }
 
     // 生成当月每天的数据（补齐没有提交的日期）
-    const daysInMonth = new Date(year, month, 0).getDate();
-
-    // 汇总所有项目的图表数据
     const chartData = [];
-    for (let day = 1; day <= daysInMonth; day++) {
-      const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    const _start = new Date(startD);
+    const _end = new Date(endD);
+    _end.setDate(_end.getDate() - 1); 
+    let currDay = new Date(startDate ? startDate : `${year}-${String(month).padStart(2, '0')}-01`);
+    let targetEnd = new Date(endDate ? endDate : `${year}-${String(month).padStart(2, '0')}-${new Date(year, month, 0).getDate()}`);
+    
+    // Safety break
+    let limit = 0;
+    while(currDay <= targetEnd && limit++ < 2000) {
+      const _y = currDay.getFullYear();
+      const _m = String(currDay.getMonth() + 1).padStart(2, '0');
+      const _d = String(currDay.getDate()).padStart(2, '0');
+      const dateStr = `${_y}-${_m}-${_d}`;
+      currDay.setDate(currDay.getDate() + 1);
       let dayAdded = 0;
       let dayDeleted = 0;
       let dayCommits = 0;
@@ -399,11 +409,12 @@ ipcMain.handle('svn-stats', async (event, { projects, username, password, author
 });
 
 // 获取用户提交统计（GitLab）
-ipcMain.handle('gitlab-stats', async (event, { projects, author, branches, year, month, threshold, formatThreshold }) => {
-  const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
-  const endMonth = month === 12 ? 1 : month + 1;
-  const endYear = month === 12 ? year + 1 : year;
-  const endDate = `${endYear}-${String(endMonth).padStart(2, '0')}-01`;
+ipcMain.handle('gitlab-stats', async (event, { projects, author, branches, year, month, threshold, formatThreshold, startDate, endDate }) => {
+  const startD = startDate || `${year}-${String(month).padStart(2, '0')}-01`;
+    const endMonth = month === 12 ? 1 : month + 1;
+    const endYear = month === 12 ? year + 1 : year;
+    const endD = endDate || `${endYear}-${String(endMonth).padStart(2, '0')}-01`;
+    // We will use local vars startD and endD in queries
 
   const allCommits = [];
   const branchStats = {}; // Changed from projectStats
@@ -465,7 +476,7 @@ ipcMain.handle('gitlab-stats', async (event, { projects, author, branches, year,
         const logSeparator = '---COMMIT-SEPARATOR---';
         const logFormat = `%H%n%aN%n%cN%n%ai%n%s%n%b${logSeparator}`; // Added %cN for committer name
         // Removed --author flag to filter in JS, which is more robust
-        const logCommand = `git -C "${repoPath}" log origin/${branchName} --since="${startDate}" --until="${endDate}" --pretty=format:"${logFormat}"`;
+        const logCommand = `git -C "${repoPath}" log origin/${branchName} --since="${startD}" --until="${endD}" --pretty=format:"${logFormat}"`;
 
         const logOutput = await runCommand(logCommand);
         const commitLogs = logOutput.split(logSeparator).filter(log => log.trim() !== '');
@@ -560,10 +571,21 @@ ipcMain.handle('gitlab-stats', async (event, { projects, author, branches, year,
     }
 
     // --- 后续处理 ---
-    const daysInMonth = new Date(year, month, 0).getDate();
     const chartData = [];
-    for (let day = 1; day <= daysInMonth; day++) {
-      const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    const _start = new Date(startD);
+    const _end = new Date(endD);
+    _end.setDate(_end.getDate() - 1); 
+    let currDay = new Date(startDate ? startDate : `${year}-${String(month).padStart(2, '0')}-01`);
+    let targetEnd = new Date(endDate ? endDate : `${year}-${String(month).padStart(2, '0')}-${new Date(year, month, 0).getDate()}`);
+    
+    // Safety break
+    let limit = 0;
+    while(currDay <= targetEnd && limit++ < 2000) {
+      const _y = currDay.getFullYear();
+      const _m = String(currDay.getMonth() + 1).padStart(2, '0');
+      const _d = String(currDay.getDate()).padStart(2, '0');
+      const dateStr = `${_y}-${_m}-${_d}`;
+      currDay.setDate(currDay.getDate() + 1);
       let dayAdded = 0, dayDeleted = 0, dayCommits = 0;
 
       // Sum daily stats from all processed branches
@@ -720,15 +742,15 @@ ipcMain.handle('gitlab-api-get-branches', async (event, { gitlabUrl, token, proj
 // GitLab API 模式 - 统计查询
 // ============================================
 ipcMain.handle('gitlab-api-stats', async (event, {
-  gitlabUrl, token, projectId, projectName,
-  author, branches, year, month, threshold, formatThreshold
+  gitlabUrl, token, projectId, projectName,  author, branches, year, month, threshold, formatThreshold, startDate, endDate
 }) => {
   try {
     const baseUrl = gitlabUrl.replace(/\/+$/, '');
-    const startDate = `${year}-${String(month).padStart(2, '0')}-01T00:00:00Z`;
+    const startD = startDate ? `${startDate}T00:00:00Z` : `${year}-${String(month).padStart(2, '0')}-01T00:00:00Z`;
     const endMonth = month === 12 ? 1 : month + 1;
     const endYear = month === 12 ? year + 1 : year;
-    const endDate = `${endYear}-${String(endMonth).padStart(2, '0')}-01T00:00:00Z`;
+    const endDateInclusive = endDate || `${year}-${String(month).padStart(2, '0')}-${new Date(year, month, 0).getDate()}`;
+    const endD = endDate ? `${endDate}T23:59:59Z` : `${endYear}-${String(endMonth).padStart(2, '0')}-01T00:00:00Z`;
 
     const allCommits = [];
     const branchStats = {};
@@ -836,10 +858,21 @@ ipcMain.handle('gitlab-api-stats', async (event, {
     }
 
     // 生成图表数据
-    const daysInMonth = new Date(year, month, 0).getDate();
     const chartData = [];
-    for (let day = 1; day <= daysInMonth; day++) {
-      const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    const _start = new Date(startD);
+    const _end = new Date(endD);
+    _end.setDate(_end.getDate() - 1); 
+    let currDay = new Date(startDate ? startDate : `${year}-${String(month).padStart(2, '0')}-01`);
+    let targetEnd = new Date(endDate ? endDate : `${year}-${String(month).padStart(2, '0')}-${new Date(year, month, 0).getDate()}`);
+    
+    // Safety break
+    let limit = 0;
+    while(currDay <= targetEnd && limit++ < 2000) {
+      const _y = currDay.getFullYear();
+      const _m = String(currDay.getMonth() + 1).padStart(2, '0');
+      const _d = String(currDay.getDate()).padStart(2, '0');
+      const dateStr = `${_y}-${_m}-${_d}`;
+      currDay.setDate(currDay.getDate() + 1);
       let dayAdded = 0, dayDeleted = 0, dayCommits = 0;
 
       for (const bName of Object.keys(branchStats)) {
@@ -913,12 +946,13 @@ ipcMain.handle('test-ssh-connection', async (event, { repoUrl }) => {
 // SSH 远程模式 - 统计查询
 // ============================================
 ipcMain.handle('gitlab-ssh-stats', async (event, {
-  repoUrl, repoName, author, branches, year, month, threshold, formatThreshold
+  repoUrl, repoName,  author, branches, year, month, threshold, formatThreshold, startDate, endDate
 }) => {
-  const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
-  const endMonth = month === 12 ? 1 : month + 1;
-  const endYear = month === 12 ? year + 1 : year;
-  const endDate = `${endYear}-${String(endMonth).padStart(2, '0')}-01`;
+  const startD = startDate || `${year}-${String(month).padStart(2, '0')}-01`;
+    const endMonth = month === 12 ? 1 : month + 1;
+    const endYear = month === 12 ? year + 1 : year;
+    const endD = endDate || `${endYear}-${String(endMonth).padStart(2, '0')}-01`;
+    // We will use local vars startD and endD in queries
 
   const allCommits = [];
   const branchStats = {};
@@ -969,7 +1003,7 @@ ipcMain.handle('gitlab-ssh-stats', async (event, {
 
       const logSeparator = '---COMMIT-SEPARATOR---';
       const logFormat = `%H%n%aN%n%cN%n%ai%n%s%n%b${logSeparator}`;
-      const logCommand = `git -C "${repoPath}" log origin/${branchName} --since="${startDate}" --until="${endDate}" --pretty=format:"${logFormat}"`;
+      const logCommand = `git -C "${repoPath}" log origin/${branchName} --since="${startD}" --until="${endD}" --pretty=format:"${logFormat}"`;
 
       const logOutput = await runCommand(logCommand);
       const commitLogs = logOutput.split(logSeparator).filter(log => log.trim() !== '');
@@ -1059,10 +1093,21 @@ ipcMain.handle('gitlab-ssh-stats', async (event, {
     }
 
     // 生成图表数据
-    const daysInMonth = new Date(year, month, 0).getDate();
     const chartData = [];
-    for (let day = 1; day <= daysInMonth; day++) {
-      const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    const _start = new Date(startD);
+    const _end = new Date(endD);
+    _end.setDate(_end.getDate() - 1); 
+    let currDay = new Date(startDate ? startDate : `${year}-${String(month).padStart(2, '0')}-01`);
+    let targetEnd = new Date(endDate ? endDate : `${year}-${String(month).padStart(2, '0')}-${new Date(year, month, 0).getDate()}`);
+    
+    // Safety break
+    let limit = 0;
+    while(currDay <= targetEnd && limit++ < 2000) {
+      const _y = currDay.getFullYear();
+      const _m = String(currDay.getMonth() + 1).padStart(2, '0');
+      const _d = String(currDay.getDate()).padStart(2, '0');
+      const dateStr = `${_y}-${_m}-${_d}`;
+      currDay.setDate(currDay.getDate() + 1);
       let dayAdded = 0, dayDeleted = 0, dayCommits = 0;
 
       for (const bName of Object.keys(branchStats)) {
@@ -1418,13 +1463,14 @@ ipcMain.handle('select-local-repo', async (event) => {
 // 本地仓库扫描模式 - 统计查询
 // ============================================
 ipcMain.handle('gitlab-local-stats', async (event, {
-  repoPath, repoName, author, branches, year, month, threshold, formatThreshold
+  repoPath, repoName,  author, branches, year, month, threshold, formatThreshold, startDate, endDate
 }) => {
   try {
-    const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
+    const startD = startDate || `${year}-${String(month).padStart(2, '0')}-01`;
     const endMonth = month === 12 ? 1 : month + 1;
     const endYear = month === 12 ? year + 1 : year;
-    const endDate = `${endYear}-${String(endMonth).padStart(2, '0')}-01`;
+    const endD = endDate || `${endYear}-${String(endMonth).padStart(2, '0')}-01`;
+    // We will use local vars startD and endD in queries
 
     const allCommits = [];
     const branchStats = {};
@@ -1451,14 +1497,14 @@ ipcMain.handle('gitlab-local-stats', async (event, {
 
       try {
         // 尝试 origin/branch 或直接 branch
-        let logCommand = `git -C "${repoPath}" log origin/${branchName} --since="${startDate}" --until="${endDate}" --pretty=format:"${logFormat}"`;
+        let logCommand = `git -C "${repoPath}" log origin/${branchName} --since="${startD}" --until="${endD}" --pretty=format:"${logFormat}"`;
         let logOutput;
 
         try {
           logOutput = await runCommand(logCommand);
         } catch (e) {
           // 如果 origin/branch 不存在，尝试直接使用分支名
-          logCommand = `git -C "${repoPath}" log ${branchName} --since="${startDate}" --until="${endDate}" --pretty=format:"${logFormat}"`;
+          logCommand = `git -C "${repoPath}" log ${branchName} --since="${startD}" --until="${endD}" --pretty=format:"${logFormat}"`;
           logOutput = await runCommand(logCommand);
         }
 
@@ -1557,10 +1603,21 @@ ipcMain.handle('gitlab-local-stats', async (event, {
     }
 
     // 生成图表数据
-    const daysInMonth = new Date(year, month, 0).getDate();
     const chartData = [];
-    for (let day = 1; day <= daysInMonth; day++) {
-      const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    const _start = new Date(startD);
+    const _end = new Date(endD);
+    _end.setDate(_end.getDate() - 1); 
+    let currDay = new Date(startDate ? startDate : `${year}-${String(month).padStart(2, '0')}-01`);
+    let targetEnd = new Date(endDate ? endDate : `${year}-${String(month).padStart(2, '0')}-${new Date(year, month, 0).getDate()}`);
+    
+    // Safety break
+    let limit = 0;
+    while(currDay <= targetEnd && limit++ < 2000) {
+      const _y = currDay.getFullYear();
+      const _m = String(currDay.getMonth() + 1).padStart(2, '0');
+      const _d = String(currDay.getDate()).padStart(2, '0');
+      const dateStr = `${_y}-${_m}-${_d}`;
+      currDay.setDate(currDay.getDate() + 1);
       let dayAdded = 0, dayDeleted = 0, dayCommits = 0;
 
       for (const bName of Object.keys(branchStats)) {
