@@ -138,6 +138,19 @@
           <label for="aiApiKey">API Key (Authorization):</label>
           <input type="password" id="aiApiKey" placeholder="Bearer sk-xxx 或留空">
         </div>
+        <div class="form-group">
+          <label>审查维度 (勾选启用的分析项):</label>
+          <div class="ai-dimensions-list">
+            <label class="el-checkbox"><input type="checkbox" name="aiDimension" value="codeStyle" checked> <span>代码规范</span></label>
+            <label class="el-checkbox"><input type="checkbox" name="aiDimension" value="potentialBugs" checked> <span>潜在 Bug</span></label>
+            <label class="el-checkbox"><input type="checkbox" name="aiDimension" value="security" checked> <span>安全问题</span></label>
+            <label class="el-checkbox"><input type="checkbox" name="aiDimension" value="performance" checked> <span>性能优化</span></label>
+            <label class="el-checkbox"><input type="checkbox" name="aiDimension" value="bestPractices" checked> <span>最佳实践</span></label>
+            <label class="el-checkbox"><input type="checkbox" name="aiDimension" value="testability" checked> <span>可测试性与架构</span></label>
+            <label class="el-checkbox"><input type="checkbox" name="aiDimension" value="frameworkFeatures" checked> <span>现代框架特性</span></label>
+            <label class="el-checkbox"><input type="checkbox" name="aiDimension" value="ux" checked> <span>用户体验与无障碍</span></label>
+          </div>
+        </div>
       </div>
 
       <button id="loginBtn" class="btn btn-primary">连接</button>
