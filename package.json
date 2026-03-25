@@ -1,0 +1,40 @@
+{
+  "name": "code-stats",
+  "version": "1.0.3",
+  "description": "代码提交统计工具",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder"
+  },
+  "keywords": [
+    "svn",
+    "git",
+    "stats",
+    "electron"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^28.0.0",
+    "electron-builder": "^24.9.1"
+  },
+  "dependencies": {
+    "echarts": "^6.0.0",
+    "electron-store": "^8.2.0",
+    "fs-extra": "^11.2.0",
+    "iconv-lite": "^0.6.3"
+  },
+  "build": {
+    "appId": "com.codestats.app",
+    "productName": "代码统计工具",
+    "win": {
+      "target": "nsis",
+      "signAndEditExecutable": false
+    },
+    "forceCodeSigning": false,
+    "directories": {
+      "output": "dist"
+    }
+  }
+}
