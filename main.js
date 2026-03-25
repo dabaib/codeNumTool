@@ -1665,36 +1665,30 @@ ipcMain.handle('gitlab-local-stats', async (event, {
 // ============================================
 
 // 读取代码审查 Prompt 模板
-function getCodeReviewPrompt() {
+function getCodeReviewPrompt(dimensions = []) {
+  const dimensionMap = {
+    codeStyle: "### 1. 代码规范\n- 命名规范：变量、函数、类、组件命名是否语义化\n- 代码格式：缩进、空格、换行是否一致\n- 注释质量：关键逻辑是否有清晰注释",
+    potentialBugs: "### 2. 潜在 Bug\n- 空值检查：是否存在可能的 null/undefined 问题\n- 边界条件：循环、条件判断的边界是否正确\n- 异步处理：Promise、async/await 是否有适当的错误处理\n- 内存泄漏：事件监听、定时器是否正确清理",
+    security: "### 3. 安全问题\n- XSS 风险：是否存在不安全的 HTML 注入\n- 敏感信息：是否有硬编码的密钥、密码\n- 输入验证：用户输入是否有适当验证",
+    performance: "### 4. 性能优化\n- 重复计算：是否有可缓存的重复计算\n- DOM 操作：是否存在频繁的 DOM 操作可优化\n- 资源加载：是否有可懒加载的资源",
+    bestPractices: "### 5. 最佳实践\n- 代码复用：是否有重复代码可提取\n- 模块化：组件/函数职责是否单一\n- 可维护性：代码是否易于理解和维护",
+    testability: "### 6. 可测试性与架构设计\n- 模块耦合：高内聚低耦合程度，是否过度依赖全局变量\n- 测试友好度：核心鉴权/计算逻辑是否容易被单独进行单元测试\n- 纯函数比例：逻辑函数是否尽可能保持了纯净",
+    frameworkFeatures: "### 7. 现代框架特性应用\n- 框架特性误用：是否错误地使用了 Hooks / Composition API / 生命周期\n- 渲染浪费：在 React / Vue 等框架中是否存在明显的多余重渲染\n- 状态管理：全局状态管理是否过载或冗余",
+    ux: "### 8. 用户体验与无障碍\n- 异常处理 UI：失败请求是否有友好的用户提示和 fallback 状态\n- 体验细节：提交交互是否有防抖、耗期操作是否有加载状态提示\n- 无障碍支持：键盘和屏幕阅读器支持、图文表单控件是否完备"
+  };
+
+  let dimensionsText = "";
+  if (dimensions && dimensions.length > 0) {
+    dimensionsText = dimensions.map(key => dimensionMap[key]).filter(Boolean).join('\n\n');
+  } else {
+    dimensionsText = Object.values(dimensionMap).slice(0, 5).join('\n\n');
+  }
+
   return `你是一位资深的前端代码审查专家，拥有丰富的 JavaScript、TypeScript、Vue、React、HTML、CSS 开发经验。请对以下代码变更进行全面审查。
 
 ## 审查维度
 
-### 1. 代码规范
-- 命名规范：变量、函数、类、组件命名是否语义化
-- 代码格式：缩进、空格、换行是否一致
-- 注释质量：关键逻辑是否有清晰注释
-
-### 2. 潜在 Bug
-- 空值检查：是否存在可能的 null/undefined 问题
-- 边界条件：循环、条件判断的边界是否正确
-- 异步处理：Promise、async/await 是否有适当的错误处理
-- 内存泄漏：事件监听、定时器是否正确清理
-
-### 3. 安全问题
-- XSS 风险：是否存在不安全的 HTML 注入
-- 敏感信息：是否有硬编码的密钥、密码
-- 输入验证：用户输入是否有适当验证
-
-### 4. 性能优化
-- 重复计算：是否有可缓存的重复计算
-- DOM 操作：是否存在频繁的 DOM 操作可优化
-- 资源加载：是否有可懒加载的资源
-
-### 5. 最佳实践
-- 代码复用：是否有重复代码可提取
-- 模块化：组件/函数职责是否单一
-- 可维护性：代码是否易于理解和维护
+${dimensionsText}
 
 ## 代码变更
 
@@ -1721,6 +1715,7 @@ X/10 分 - 简短评价
 1. 肯定的内容
 2. ...`;
 }
+
 
 // 将 diff 数据转换为可读文本
 function formatDiffForReview(diffData) {
@@ -1872,7 +1867,7 @@ function callLLMApi(apiUrl, model, authorization, prompt) {
 }
 
 // IPC Handler: 代码审查
-ipcMain.handle('code-review', async (event, { apiUrl, model, authorization, diffData }) => {
+ipcMain.handle('code-review', async (event, { apiUrl, model, authorization, dimensions, diffData }) => {
   try {
     // 验证参数
     if (!apiUrl || !model) {
@@ -1886,7 +1881,7 @@ ipcMain.handle('code-review', async (event, { apiUrl, model, authorization, diff
     }
 
     // 构建完整 prompt
-    const promptTemplate = getCodeReviewPrompt();
+    const promptTemplate = getCodeReviewPrompt(dimensions);
     const fullPrompt = promptTemplate.replace('{CODE_DIFF}', diffText);
 
     // 调用 AI API
@@ -1899,7 +1894,25 @@ ipcMain.handle('code-review', async (event, { apiUrl, model, authorization, diff
 });
 
 // 批量代码审查 Prompt 模板
-function getBatchCodeReviewPrompt() {
+function getBatchCodeReviewPrompt(dimensions = []) {
+  const dimensionDescMap = {
+    codeStyle: "代码规范与命名",
+    potentialBugs: "潜在 Bug（空指针、边界与内存）",
+    security: "安全漏洞",
+    performance: "计算与渲染性能问题",
+    bestPractices: "最佳实践与架构可维护性",
+    testability: "可测试性设计缺陷",
+    frameworkFeatures: "现代框架特性的误用",
+    ux: "用户交互反馈与无障碍体验下降点"
+  };
+
+  let targetFocus = "";
+  if (dimensions && dimensions.length > 0) {
+    targetFocus = dimensions.map(key => dimensionDescMap[key]).filter(Boolean).join("、");
+  } else {
+    targetFocus = "安全漏洞、性能问题、代码规范";
+  }
+
   return `你是一位资深的代码审查专家。请对以下多个提交的代码变更进行整体审查分析。
 
 ## 审查要求
@@ -1908,7 +1921,7 @@ function getBatchCodeReviewPrompt() {
 2. **具体问题识别**：针对每个提交，列出发现的具体问题
 3. **共性问题识别**：找出多个提交中重复出现的问题模式
 4. **改进趋势分析**：分析代码是否在逐步改进
-5. **重点关注**：安全漏洞、性能问题、代码规范
+5. **重点关注以下维度**：${targetFocus}
 
 ## 提交记录汇总
 
@@ -1928,9 +1941,6 @@ X/10 分 - 简要总结这批提交的整体质量
 - [严重/中等/轻微] 问题描述
 - [严重/中等/轻微] 问题描述
 
-**提交 rYYY (提交信息摘要)**
-- [严重/中等/轻微] 问题描述
-
 （如果某个提交没有发现问题，可以跳过）
 
 ### 📈 趋势分析
@@ -1942,18 +1952,19 @@ X/10 分 - 简要总结这批提交的整体质量
 2. ...
 
 ### 🟡 建议改进
-针对团队/个人的改进建议：
+针对团队/个人的综合演进改进建议：
 1. ...
 
 ### 🟢 亮点总结
 做得好的方面：
 1. ...
 
-请用中文回复，保持简洁专业。`;
+请用中文回复，保持专业且切中要害。`;
 }
 
+
 // IPC Handler: 批量代码审查
-ipcMain.handle('batch-code-review', async (event, { apiUrl, model, authorization, commits }) => {
+ipcMain.handle('batch-code-review', async (event, { apiUrl, model, authorization, dimensions, commits }) => {
   try {
     // 验证参数
     if (!apiUrl || !model) {
@@ -2002,7 +2013,7 @@ ipcMain.handle('batch-code-review', async (event, { apiUrl, model, authorization
     commitsSummary += `- 类型分布: ${Object.entries(typeStats).map(([k, v]) => `${k}(${v})`).join(', ')}\n`;
 
     // 构建完整 prompt
-    const promptTemplate = getBatchCodeReviewPrompt();
+    const promptTemplate = getBatchCodeReviewPrompt(dimensions);
     const fullPrompt = promptTemplate.replace('{COMMITS_SUMMARY}', commitsSummary);
 
     // 调用 AI API

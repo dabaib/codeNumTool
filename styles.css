@@ -1649,3 +1649,8 @@ h1 {
 .el-month-table td:hover .cell { background: #f0f9eb; color: #409eff; }
 .el-month-table td.current .cell { background: #409eff; color: #fff; font-weight: bold; }
 .el-input__prefix { position: absolute; left: 0; top: 0; width: 30px; height: 100%; text-align: center; color: #c0c4cc; }
+
+.ai-dimensions-list { display: flex; flex-wrap: wrap; gap: 5px 12px; margin-top: 6px; }
+.ai-dimensions-list .el-checkbox { margin-bottom: 0; display: inline-flex; align-items: center; gap: 4px; cursor: pointer; font-size: 12px; color: #606266; line-height: 20px; }
+.ai-dimensions-list .el-checkbox input[type=checkbox] { width: 14px; height: 14px; margin: 0; accent-color: #409eff; cursor: pointer; vertical-align: middle; }
+.ai-dimensions-list .el-checkbox span { line-height: 20px; user-select: none; }

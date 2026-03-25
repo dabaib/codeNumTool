@@ -45,7 +45,8 @@ npm run build
   - SVN commands via `svn` CLI with GBK encoding conversion (Windows)
   - Git commands via `git` CLI for local/SSH repository scanning
   - GitLab API requests via native `http`/`https` modules
-  - IPC handlers: `svn-login`, `svn-stats`, `gitlab-login`, `gitlab-stats`, `gitlab-api-*`, `gitlab-local-stats`, `test-ssh-connection`, `gitlab-ssh-stats`
+  - IPC handlers: `svn-login`, `svn-stats`, `gitlab-login`, `gitlab-stats`, `gitlab-api-*`, `gitlab-local-stats`, `test-ssh-connection`, `gitlab-ssh-stats`, `code-review`, `batch-code-review`
+  - Prompt assembly: `getCodeReviewPrompt(dimensions)` / `getBatchCodeReviewPrompt(dimensions)` dynamically builds prompt based on selected dimension keys
 
 - **Preload Script** (`preload.js`): Exposes `window.svnAPI`, `window.gitlabAPI`, and `window.codeReviewAPI` to renderer via context bridge
 
@@ -55,9 +56,10 @@ npm run build
 
 1. User configures projects/repositories in login card
 2. Main process validates connections via CLI commands or API calls
-3. Statistics query retrieves commit logs and diffs per revision
-4. Results aggregated by project/branch with daily breakdowns
-5. Charts rendered via ECharts (line chart, bar chart, pie chart)
+3. User selects query mode (month / quarter / custom date range) then triggers stats query
+4. Statistics query retrieves commit logs and diffs per revision
+5. Results aggregated by project/branch with daily breakdowns
+6. Charts rendered via ECharts (line chart, bar chart, pie chart)
 
 ### Key Data Structures
 
@@ -148,7 +150,25 @@ The commits table includes a "查看" (View) button for each commit to display c
 | `gitlab-api-get-branches` | Get branches via GitLab API |
 | `gitlab-api-stats` | Get stats via GitLab REST API |
 | `gitlab-api-get-diff` | Get diff for a commit via GitLab REST API |
-| `code-review` | Send diff to LLM API for code review |
+| `code-review` | Send diff to LLM API for code review (accepts `dimensions[]` to control prompt) |
+| `batch-code-review` | Send multiple commits to LLM API for batch code review (accepts `dimensions[]`) |
+
+### Query Modes
+
+统计查询支持三种时间范围模式，通过页面顶部按钮切换：
+
+| Mode | ID | Description |
+|------|----|-------------|
+| 按月 | `month` | 自定义月份弹窗选择器 (代替原生 `input[type=month]`) |
+| 按季度 | `quarter` | 自定义季度弹窗选择器（Q1～Q4），自动换算 startDate/endDate |
+| 自定义 | `custom` | 两个 `input[type=date]` 自由选取起止日期 |
+
+前端将所有模式统一转换为 `{ startDate, endDate }` 字符串传递给后端，后端优先使用传入值。
+
+**Custom Date Picker Components (`renderer.js`):**
+- `renderMonthDropdown()` / `updateMonthDisplay()`: month picker panel rendering
+- `renderQuarterDropdown()` / `updateQuarterDisplay()`: quarter picker panel rendering
+- Picker panels auto-close on outside click via `document` click listener
 
 ### AI Code Review Feature
 
@@ -158,12 +178,25 @@ The commits table includes a "查看" (View) button for each commit to display c
 - API 地址：大模型 API 端点（如 `http://localhost:11434/v1/chat/completions`）
 - 模型名称：要使用的模型（如 `qwen2.5:7b`）
 - API Key：Authorization header（Bearer token 或留空）
+- 审查维度：8 个可独立勾选的复选框，默认全选，配置持久化至 `localStorage`
+
+**支持的审查维度 (`dimensions` 值):**
+
+| 值 | 说明 |
+|---|------|
+| `codeStyle` | 代码规范（命名、格式、注释）|
+| `potentialBugs` | 潜在 Bug（空值、边界、异步、内存泄漏）|
+| `security` | 安全问题（XSS、硬编码密钥、输入验证）|
+| `performance` | 性能优化（频繁 DOM、重复计算、懒加载）|
+| `bestPractices` | 最佳实践（复用、模块化、可维护性）|
+| `testability` | 可测试性与架构设计（耦合度、纯函数比例）|
+| `frameworkFeatures` | 现代框架特性应用（Hooks 误用、多余重渲染）|
+| `ux` | 用户体验与无障碍（错误UI、防抖、A11y）|
 
 **审查入口：**
-- 提交列表每行的 🔍 按钮
+- 提交列表每行的 🔍 按钮（单条审查）
 - Diff 弹窗头部的 "AI审查" 按钮
-
-**Prompt 模板：** `.agent/skills/frontend-code-review/SKILL.md`
+- 批量勾选提交后点击 "批量AI审查" 按钮
 
 **API 格式：** 兼容 OpenAI Chat Completions API 和 Ollama 响应格式
 
