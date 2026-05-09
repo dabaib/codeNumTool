@@ -175,7 +175,7 @@ function parseCommitType(message) {
   const lowerMsg = message.toLowerCase().trim();
   const types = ['feat', 'fix', 'refactor', 'style', 'docs', 'test', 'chore', 'perf', 'ci', 'build'];
   for (const type of types) {
-    if (lowerMsg.startsWith(type + ':') || lowerMsg.startsWith(type + '(') || lowerMsg.startsWith(type + ' ')) {
+    if (lowerMsg.startsWith(type + ':') || lowerMsg.startsWith(type + '：') || lowerMsg.startsWith(type + '(') || lowerMsg.startsWith(type + ' ')) {
       return type;
     }
   }

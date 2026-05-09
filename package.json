@@ -28,8 +28,10 @@
   "build": {
     "appId": "com.codestats.app",
     "productName": "代码统计工具",
+    "icon": "assets/icon.ico",
     "win": {
       "target": "nsis",
+      "icon": "assets/icon.ico",
       "signAndEditExecutable": false
     },
     "forceCodeSigning": false,
