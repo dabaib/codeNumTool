@@ -1047,12 +1047,12 @@ function renderCommitsTable() {
         <td>r${commit.revision}</td>
         <td>${dateStr}</td>
         <td><span class="commit-type ${typeClass}">${commit.commitType}</span></td>
-        <td class="commit-message" title="${escapeHtml(commit.message)}">${escapeHtml(commit.message)}</td>
+        <td class="commit-message" title="${escapeHtml(commit.message)}">${normTag}${dupTag}${escapeHtml(commit.message)}</td>
         <td class="num added">+${commit.added}</td>
         <td class="num deleted">-${commit.deleted}</td>
         <td class="num">${commit.net >= 0 ? '+' : ''}${commit.net}</td>
         <td><span class="commit-status ${statusClass}">${statusText}</span></td>
-        <td>${normTag}${dupTag}</td>
+        <td>
         <td>
           <button class="btn-view-diff" onclick="viewCommitDiff(${globalIndex})">查看</button>
           <button class="btn-review" onclick="reviewCommitCode(${globalIndex})" title="AI审查">🔍</button>
