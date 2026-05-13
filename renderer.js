@@ -74,24 +74,17 @@ const filterBtn = document.getElementById('filterBtn');
 const resetFilterBtn = document.getElementById('resetFilterBtn');
 
 let connectionConfig = {
-  vcs: 'svn', // 'svn' or 'git'
-  projects: [],
-  username: '',
-  password: '',
+  enabledModes: [], // ['svn', 'git']
+  svn: {
+    projects: [],
+    username: '',
+    password: ''
+  },
+  git: {
+    repos: [] // 每个仓库独立配置
+  },
   threshold: 500,
   formatThreshold: 200,
-
-  // GitLab 模式配置
-  gitlabMode: 'local', // 'local' or 'ssh'
-
-  // 本地扫描模式配置
-  localRepoPath: '',
-  localRepoName: '',
-
-  // SSH 远程模式配置
-  sshRepoUrl: '',
-  sshRepoName: '',
-  sshBranches: [],
 
   // AI 代码审查配置
   aiApiUrl: '',
@@ -563,20 +556,17 @@ document.querySelector('.project-row .btn-remove').addEventListener('click', (e)
 
 // 获取所有项目配置
 function getProjects() {
-  const vcsType = vcsTypeInput.value;
   const projects = [];
-
-  if (vcsType === 'svn') {
+  if (connectionConfig.enabledModes.includes('svn')) {
     const rows = projectList.querySelectorAll('.project-row');
     rows.forEach(row => {
       const name = row.querySelector('.project-name').value.trim();
       const url = row.querySelector('.project-url').value.trim();
       if (name && url) {
-        projects.push({ name, url });
+        projects.push({ name, url, type: 'svn' });
       }
     });
   }
-  // GitLab 模式不再使用 projects 数组，而是使用 connectionConfig 中的配置
   return projects;
 }
 
