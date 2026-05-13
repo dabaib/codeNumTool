@@ -4,7 +4,8 @@
       "Bash(npm install)",
       "Bash(npm config set electron_mirror https://npmmirror.com/mirrors/electron/)",
       "Bash(npm install echarts)",
-      "Bash(npm start)"
+      "Bash(npm start)",
+      "Bash(git add:*)"
     ]
   }
 }

@@ -821,10 +821,55 @@ function displayResults() {
   renderGroupingTabs();
   updateStats();
   renderBreakdownTable();
-  renderLineChart(queryResult.chartData);
-  renderBarChart(queryResult.chartData);
-  renderPieChart(queryResult.commitTypeStats);
+  updateCharts();
   applyFilter();
+}
+
+// 根据选中的分组更新图表
+function updateCharts() {
+  if (!queryResult) return;
+
+  let chartData;
+  let commitTypeStats;
+
+  if (selectedGroup === 'all') {
+    chartData = queryResult.chartData;
+    commitTypeStats = queryResult.commitTypeStats;
+  } else {
+    // 从 branchStats/projectStats 中提取选中分组的数据
+    const isGit = connectionConfig.vcs === 'git';
+    const statsSource = isGit ? queryResult.branchStats : queryResult.projectStats;
+    const groupStats = statsSource[selectedGroup];
+
+    if (!groupStats) return;
+
+    // 重构 chartData：从 groupStats.dailyStats 构建
+    chartData = [];
+    const allDates = Object.keys(groupStats.dailyStats || {}).sort();
+    for (const dateStr of allDates) {
+      const dayStats = groupStats.dailyStats[dateStr];
+      chartData.push({
+        date: dateStr,
+        added: dayStats.added,
+        deleted: dayStats.deleted,
+        commits: dayStats.commits
+      });
+    }
+
+    // 重构 commitTypeStats：遍历该分组的 commits 统计
+    commitTypeStats = {};
+    const isGitMode = connectionConfig.vcs === 'git';
+    for (const commit of queryResult.commits) {
+      if (isGitMode && commit.project !== selectedGroup) continue;
+      if (!isGitMode && commit.project !== selectedGroup) continue;
+      const type = commit.commitType || 'other';
+      commitTypeStats[type] = (commitTypeStats[type] || 0) + 1;
+    }
+  }
+
+  renderLineChart(chartData);
+  renderBarChart(chartData);
+  renderPieChart(commitTypeStats);
 }
 
 // 渲染分组选项卡（项目或分支）
@@ -849,6 +894,7 @@ function renderGroupingTabs() {
       projectTabs.querySelectorAll('.project-tab').forEach(t => t.classList.remove('active'));
       tab.classList.add('active');
       updateStats();
+      updateCharts();
       applyFilter();
     });
   });
