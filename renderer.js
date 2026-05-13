@@ -92,35 +92,43 @@ let connectionConfig = {
   aiApiKey: ''
 };
 
-// VCS切换
+// VCS切换（支持多选）
 vcsToggleButtons.forEach(button => {
   button.addEventListener('click', async () => {
     const vcs = button.dataset.vcs;
-    vcsTypeInput.value = vcs;
-
-    vcsToggleButtons.forEach(btn => btn.classList.remove('active'));
-    button.classList.add('active');
-
-    if (vcs === 'svn') {
-      svnAuthConfig.classList.remove('hidden');
-      svnProjectConfig.classList.remove('hidden');
-      gitlabProjectConfig.classList.add('hidden');
-    } else {
-      svnAuthConfig.classList.add('hidden');
-      svnProjectConfig.classList.add('hidden');
-      gitlabProjectConfig.classList.remove('hidden');
-
-      // 自动填充Git用户名
-      const result = await window.gitlabAPI.getLocalGitUser();
-      if (result.success) {
-        authorInput.value = result.userName;
-      } else {
-        authorInput.value = '';
-        console.error(result.error);
+    if (connectionConfig.enabledModes.includes(vcs)) {
+      // 已启用则移除（至少保留一个）
+      if (connectionConfig.enabledModes.length > 1) {
+        connectionConfig.enabledModes = connectionConfig.enabledModes.filter(m => m !== vcs);
+        button.classList.remove('active');
       }
+    } else {
+      // 未启用则添加
+      connectionConfig.enabledModes.push(vcs);
+      button.classList.add('active');
     }
+    // 更新对应配置区块可见性
+    await updateConfigVisibility();
   });
 });
+
+// 更新配置区块可见性
+async function updateConfigVisibility() {
+  const showSvn = connectionConfig.enabledModes.includes('svn');
+  const showGit = connectionConfig.enabledModes.includes('git');
+
+  if (svnAuthConfig) svnAuthConfig.classList.toggle('hidden', !showSvn);
+  if (svnProjectConfig) svnProjectConfig.classList.toggle('hidden', !showSvn);
+  if (gitlabProjectConfig) gitlabProjectConfig.classList.toggle('hidden', !showGit);
+
+  // 自动获取 Git 用户名（当启用 Git 时且未启用 SVN）
+  if (showGit && !showSvn) {
+    const result = await window.gitlabAPI.getLocalGitUser();
+    if (result.success) {
+      authorInput.value = result.userName;
+    }
+  }
+}
 
 // GitLab 子模式切换（本地 / SSH）
 gitlabModeButtons.forEach(button => {
@@ -572,30 +580,31 @@ function getProjects() {
 
 // 登录按钮点击事件
 loginBtn.addEventListener('click', async () => {
-  const vcsType = vcsTypeInput.value;
   const threshold = parseInt(thresholdInput.value) || 3000;
   const formatThreshold = parseInt(formatThresholdInput.value) || 200;
 
-  connectionConfig.vcs = vcsType;
   connectionConfig.threshold = threshold;
   connectionConfig.formatThreshold = formatThreshold;
 
   loginBtn.disabled = true;
 
   try {
-    if (vcsType === 'svn') {
-      // SVN 模式
+    const enabledModes = connectionConfig.enabledModes;
+    const results = {};
+
+    // SVN 登录验证
+    if (enabledModes.includes('svn')) {
       const projects = getProjects();
       const username = usernameInput.value.trim();
       const password = passwordInput.value;
 
       if (projects.length === 0) {
-        showStatus(loginStatus, '请至少填写一个项目', 'error');
+        showStatus(loginStatus, '请至少填写一个 SVN 项目', 'error');
         loginBtn.disabled = false;
         return;
       }
       if (!username || !password) {
-        showStatus(loginStatus, '请填写用户名和密码', 'error');
+        showStatus(loginStatus, '请填写 SVN 用户名和密码', 'error');
         loginBtn.disabled = false;
         return;
       }
@@ -605,23 +614,20 @@ loginBtn.addEventListener('click', async () => {
       connectionConfig.password = password;
 
       const result = await window.svnAPI.login(projects, username, password);
-
       if (result.success) {
         const successProjects = result.results.filter(r => r.success);
-        connectionConfig.projects = successProjects.map(r => ({ name: r.name, url: r.url }));
+        connectionConfig.svn.projects = successProjects.map(r => ({ name: r.name, url: r.url }));
+        connectionConfig.svn.username = username;
         showStatus(loginStatus, result.message, 'success');
-        setTimeout(() => {
-          loginCard.classList.add('hidden');
-          statsCard.classList.remove('hidden');
-          // SVN模式：隐藏分支选择，填充用户名
-          branchGroup.classList.add('hidden');
-          authorInput.value = username;
-        }, 1000);
+        results.svn = { success: true, message: result.message };
       } else {
-        showStatus(loginStatus, `连接失败: ${result.error || '所有项目连接失败'}`, 'error');
+        showStatus(loginStatus, `SVN 连接失败: ${result.error || '所有项目连接失败'}`, 'error');
+        results.svn = { success: false, error: result.error };
       }
+    }
 
-    } else { // GitLab 模式
+    // Git 登录验证
+    if (enabledModes.includes('git')) {
       const gitlabMode = connectionConfig.gitlabMode;
 
       if (gitlabMode === 'local') {
@@ -632,6 +638,7 @@ loginBtn.addEventListener('click', async () => {
           return;
         }
         showStatus(loginStatus, '本地仓库已就绪', 'success');
+        results.git = { success: true };
       } else {
         // SSH 模式: 验证必要配置
         if (!connectionConfig.sshRepoUrl) {
@@ -640,20 +647,31 @@ loginBtn.addEventListener('click', async () => {
           return;
         }
         showStatus(loginStatus, 'SSH 仓库已就绪', 'success');
+        results.git = { success: true };
       }
+    }
 
+    // 检查是否所有启用的模式都成功
+    const allSuccess = enabledModes.every(mode => results[mode] && results[mode].success);
+    if (allSuccess && enabledModes.length > 0) {
       setTimeout(async () => {
         loginCard.classList.add('hidden');
         statsCard.classList.remove('hidden');
-        // Git模式：显示分支选择，获取Git用户名
-        branchGroup.classList.remove('hidden');
-        try {
-          const gitUserResult = await window.gitlabAPI.getLocalGitUser();
-          if (gitUserResult.success && gitUserResult.userName) {
-            authorInput.value = gitUserResult.userName;
+        // SVN 模式：隐藏分支选择，填充用户名
+        if (enabledModes.includes('svn') && !enabledModes.includes('git')) {
+          branchGroup.classList.add('hidden');
+          authorInput.value = connectionConfig.username;
+        } else {
+          // Git 模式：显示分支选择，获取 Git 用户名
+          branchGroup.classList.remove('hidden');
+          try {
+            const gitUserResult = await window.gitlabAPI.getLocalGitUser();
+            if (gitUserResult.success && gitUserResult.userName) {
+              authorInput.value = gitUserResult.userName;
+            }
+          } catch (e) {
+            console.error('获取 Git 用户名失败:', e);
           }
-        } catch (e) {
-          console.error('获取Git用户名失败:', e);
         }
       }, 1000);
     }
