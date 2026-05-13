@@ -890,7 +890,16 @@ function updateStats() {
   netLinesEl.textContent = (stats.totalAdded - stats.totalDeleted).toLocaleString();
   overThresholdCountEl.textContent = stats.overThresholdCount;
   formatCodeCountEl.textContent = stats.formatCodeCount;
-  document.getElementById('activeDays').textContent = queryResult.activeDays;
+
+  // 活跃天数：选择全部时用全局数据，选择分支时用该分支的数据
+  if (selectedGroup === 'all') {
+    document.getElementById('activeDays').textContent = queryResult.activeDays;
+  } else {
+    // 从分支的 dailyStats 计算活跃天数
+    const groupStats = statsSource[selectedGroup];
+    const activeDays = groupStats ? Object.keys(groupStats.dailyStats || {}).length : 0;
+    document.getElementById('activeDays').textContent = activeDays;
+  }
 }
 
 // 渲染项目/分支统计表格
