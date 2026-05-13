@@ -1031,6 +1031,13 @@ function renderCommitsTable() {
       format: '格式化'
     }[commit.status];
 
+    // 规范性标签
+    const normTag = commit.normStatus === 'pass'
+      ? '<span class="norm-tag norm-pass">规范</span>'
+      : '<span class="norm-tag norm-fail">不规范</span>';
+    // 重复标签
+    const dupTag = commit.isDuplicate ? '<span class="dup-tag">重复</span>' : '';
+
     const isChecked = selectedCommitIndices.has(globalIndex) ? 'checked' : '';
 
     html += `
@@ -1045,6 +1052,7 @@ function renderCommitsTable() {
         <td class="num deleted">-${commit.deleted}</td>
         <td class="num">${commit.net >= 0 ? '+' : ''}${commit.net}</td>
         <td><span class="commit-status ${statusClass}">${statusText}</span></td>
+        <td>${normTag}${dupTag}</td>
         <td>
           <button class="btn-view-diff" onclick="viewCommitDiff(${globalIndex})">查看</button>
           <button class="btn-review" onclick="reviewCommitCode(${globalIndex})" title="AI审查">🔍</button>

@@ -202,6 +202,66 @@ function getCommitStatus(added, deleted, threshold, formatThreshold) {
   return 'normal';
 }
 
+// 提交信息规范性与重复检测
+// normStatus: 'pass' | 'fail'
+// isDuplicate: boolean
+// duplicateGroup: number | null
+function analyzeCommitMessage(message, allMessages, currentIndex) {
+  const VALID_TYPES = ['feat', 'fix', 'refactor', 'style', 'docs', 'test', 'chore', 'perf', 'ci', 'build'];
+
+  // 1. 规范性检查：是否符合 type: description 格式
+  let normStatus = 'fail';
+  if (message) {
+    const trimmed = message.trim();
+    // 匹配 type: description 或 type：description
+    const match = trimmed.match(/^(feat|fix|refactor|style|docs|test|chore|perf|ci|build)[:：]\s*.+/i);
+    if (match) {
+      normStatus = 'pass';
+    }
+  }
+
+  // 2. 重复检测：Jaccard 相似度
+  const isDuplicate = false;
+  const duplicateGroup = null;
+
+  // 分词函数：按中英文逗号、空格、标点分割
+  function tokenize(text) {
+    if (!text) return new Set();
+    // 移除 type: 前缀后再分词
+    const cleaned = text.replace(/^(feat|fix|refactor|style|docs|test|chore|perf|ci|build)[:：]\s*/i, '');
+    const tokens = cleaned.split(/[,，\s，。、；;!?。，、]+/).filter(t => t.length > 0);
+    return new Set(tokens.map(t => t.toLowerCase()));
+  }
+
+  // Jaccard 相似度
+  function jaccardSimilarity(set1, set2) {
+    if (set1.size === 0 && set2.size === 0) return 1;
+    if (set1.size === 0 || set2.size === 0) return 0;
+    const intersection = new Set([...set1].filter(x => set2.has(x)));
+    const union = new Set([...set1, ...set2]);
+    return intersection.size / union.size;
+  }
+
+  const threshold = 0.7;
+  const currentTokens = tokenize(message);
+  let maxSimilarity = 0;
+
+  for (let i = 0; i < allMessages.length; i++) {
+    if (i === currentIndex) continue;
+    const otherTokens = tokenize(allMessages[i]);
+    const sim = jaccardSimilarity(currentTokens, otherTokens);
+    if (sim > maxSimilarity) {
+      maxSimilarity = sim;
+    }
+  }
+
+  return {
+    normStatus,
+    isDuplicate: maxSimilarity >= threshold,
+    duplicateGroup: null
+  };
+}
+
 // 获取用户提交统计（SVN）
 ipcMain.handle('svn-stats', async (event, { projects, username, password, author, year, month, threshold, formatThreshold, startDate, endDate }) => {
   try {
@@ -267,6 +327,11 @@ ipcMain.handle('svn-stats', async (event, { projects, username, password, author
                 // 统计提交类型
                 commitTypeStats[commitType] = (commitTypeStats[commitType] || 0) + 1;
 
+                // 收集消息用于后续重复检测
+                const msgIndex = allCommits.length;
+                const prevMessages = allCommits.map(c => c.message);
+                const msgAnalysis = analyzeCommitMessage(message, [...prevMessages, message], msgIndex);
+
                 allCommits.push({
                   project: project.name,
                   projectUrl: project.url,
@@ -278,7 +343,9 @@ ipcMain.handle('svn-stats', async (event, { projects, username, password, author
                   added,
                   deleted,
                   net: added - deleted,
-                  status
+                  status,
+                  normStatus: msgAnalysis.normStatus,
+                  isDuplicate: msgAnalysis.isDuplicate
                 });
 
                 // 项目统计
@@ -530,6 +597,11 @@ ipcMain.handle('gitlab-stats', async (event, { projects, author, branches, year,
           activeDaysSet.add(dateStr);
           commitTypeStats[commitType] = (commitTypeStats[commitType] || 0) + 1;
 
+          // 提交信息分析
+          const msgIndex = allCommits.length;
+          const prevMessages = allCommits.map(c => c.message);
+          const msgAnalysis = analyzeCommitMessage(message, [...prevMessages, message], msgIndex);
+
           allCommits.push({
             project: branchName, // Use branch name as project identifier in this view
             projectUrl: projectUrl,
@@ -542,7 +614,9 @@ ipcMain.handle('gitlab-stats', async (event, { projects, author, branches, year,
             added,
             deleted,
             net: added - deleted,
-            status
+            status,
+            normStatus: msgAnalysis.normStatus,
+            isDuplicate: msgAnalysis.isDuplicate
           });
 
           // 累加到分支统计
@@ -819,6 +893,11 @@ ipcMain.handle('gitlab-api-stats', async (event, {
           activeDaysSet.add(dateStr);
           commitTypeStats[commitType] = (commitTypeStats[commitType] || 0) + 1;
 
+          // 提交信息分析
+          const msgIndex = allCommits.length;
+          const prevMessages = allCommits.map(c => c.message);
+          const msgAnalysis = analyzeCommitMessage(commit.title, [...prevMessages, commit.title], msgIndex);
+
           allCommits.push({
             project: branch,
             projectUrl: `${baseUrl}/${projectName}`,
@@ -830,7 +909,9 @@ ipcMain.handle('gitlab-api-stats', async (event, {
             added,
             deleted,
             net: added - deleted,
-            status
+            status,
+            normStatus: msgAnalysis.normStatus,
+            isDuplicate: msgAnalysis.isDuplicate
           });
 
           // 更新分支统计
@@ -1058,6 +1139,11 @@ ipcMain.handle('gitlab-ssh-stats', async (event, {
         activeDaysSet.add(dateStr);
         commitTypeStats[commitType] = (commitTypeStats[commitType] || 0) + 1;
 
+        // 提交信息分析
+        const msgIndex = allCommits.length;
+        const prevMessages = allCommits.map(c => c.message);
+        const msgAnalysis = analyzeCommitMessage(message, [...prevMessages, message], msgIndex);
+
         allCommits.push({
           project: branchName,
           projectUrl: repoUrl,
@@ -1070,7 +1156,9 @@ ipcMain.handle('gitlab-ssh-stats', async (event, {
           added,
           deleted,
           net: added - deleted,
-          status
+          status,
+          normStatus: msgAnalysis.normStatus,
+          isDuplicate: msgAnalysis.isDuplicate
         });
 
         const bs = branchStats[branchName];
@@ -1564,6 +1652,11 @@ ipcMain.handle('gitlab-local-stats', async (event, {
           activeDaysSet.add(dateStr);
           commitTypeStats[commitType] = (commitTypeStats[commitType] || 0) + 1;
 
+          // 提交信息分析
+          const msgIndex = allCommits.length;
+          const prevMessages = allCommits.map(c => c.message);
+          const msgAnalysis = analyzeCommitMessage(message, [...prevMessages, message], msgIndex);
+
           allCommits.push({
             project: branchName,
             projectUrl: repoPath,
@@ -1576,7 +1669,9 @@ ipcMain.handle('gitlab-local-stats', async (event, {
             added,
             deleted,
             net: added - deleted,
-            status
+            status,
+            normStatus: msgAnalysis.normStatus,
+            isDuplicate: msgAnalysis.isDuplicate
           });
 
           // 更新分支统计

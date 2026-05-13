@@ -648,6 +648,35 @@ h1 {
   color: #856404;
 }
 
+/* 提交信息规范性标签 */
+.norm-tag {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  margin-right: 4px;
+}
+
+.norm-tag.norm-pass {
+  background: #d4edda;
+  color: #155724;
+}
+
+.norm-tag.norm-fail {
+  background: #f8d7da;
+  color: #721c24;
+}
+
+/* 提交信息重复标签 */
+.dup-tag {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  background: #fff3cd;
+  color: #856404;
+}
+
 /* 提交信息列 */
 .commit-message {
   max-width: 300px;
