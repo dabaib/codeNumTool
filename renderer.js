@@ -1053,7 +1053,6 @@ function renderCommitsTable() {
         <td class="num">${commit.net >= 0 ? '+' : ''}${commit.net}</td>
         <td><span class="commit-status ${statusClass}">${statusText}</span></td>
         <td>
-        <td>
           <button class="btn-view-diff" onclick="viewCommitDiff(${globalIndex})">查看</button>
           <button class="btn-review" onclick="reviewCommitCode(${globalIndex})" title="AI审查">🔍</button>
         </td>
