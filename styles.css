@@ -201,6 +201,58 @@ h1 {
   margin-top: 5px;
 }
 
+/* 多仓库分支选择器（登录后显示） */
+.git-repo-branches-select {
+  margin-bottom: 15px;
+  padding: 12px;
+  background: #f5f7fa;
+  border-radius: 4px;
+}
+
+.git-repo-branches-select .git-repo-branch-item {
+  margin-bottom: 12px;
+}
+
+.git-repo-branches-select .git-repo-branch-item:last-child {
+  margin-bottom: 0;
+}
+
+.git-repo-branches-select .branch-repo-name {
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: #303133;
+}
+
+.git-repo-branches-select .repo-branches-select {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.git-repo-branches-select .branch-checkbox-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  background: white;
+  border: 1px solid #dcdfe6;
+  border-radius: 4px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.git-repo-branches-select .branch-checkbox-label:hover {
+  border-color: #409eff;
+}
+
+.git-repo-branches-select .branch-checkbox-label input:checked + span,
+.git-repo-branches-select .branch-checkbox-label:has(input:checked) {
+  color: #409eff;
+  border-color: #409eff;
+  background: #ecf5ff;
+}
+
 .btn {
   padding: 12px 30px;
   border: none;

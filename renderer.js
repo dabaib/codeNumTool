@@ -271,6 +271,56 @@ function updateAllBranchesFromRepos() {
   allBranches = Array.from(allBranchSet);
 }
 
+// 渲染多仓库分支选择器（登录后显示在 statsCard 中）
+function renderGitRepoBranchesSelect() {
+  const container = document.getElementById('gitRepoBranchesSelect');
+  if (!container) return;
+
+  // 只有 Git 模式且有有效仓库时才显示
+  if (connectionConfig.vcs !== 'git' || gitRepos.length === 0) {
+    container.classList.add('hidden');
+    return;
+  }
+
+  container.classList.remove('hidden');
+  container.innerHTML = gitRepos.map((repo, idx) => `
+    <div class="git-repo-branch-item" data-repo-id="${repo.id}">
+      <div class="branch-repo-name">${repo.name || '仓库 ' + (idx + 1)}</div>
+      <div class="repo-branches-select">
+        ${repo.branches.map(branch => `
+          <label class="branch-checkbox-label">
+            <input type="checkbox" value="${branch}"
+              ${repo.selectedBranches.has(branch) ? 'checked' : ''}
+              onchange="updateRepoSelectedBranch(${repo.id}, '${branch}', this.checked)">
+            <span>${branch}</span>
+          </label>
+        `).join('')}
+      </div>
+    </div>
+  `).join('');
+}
+
+// 更新某仓库选中的分支
+function updateRepoSelectedBranch(repoId, branch, checked) {
+  const repo = gitRepos.find(r => r.id === repoId);
+  if (!repo) return;
+  if (checked) {
+    repo.selectedBranches.add(branch);
+  } else {
+    repo.selectedBranches.delete(branch);
+  }
+  // 同时更新 connectionConfig.git.repos 中的分支列表
+  if (connectionConfig.git && connectionConfig.git.repos) {
+    const configRepo = connectionConfig.git.repos.find(cr =>
+      (repo.mode === 'local' && cr.repoPath === repo.path) ||
+      (repo.mode === 'ssh' && cr.repoUrl === repo.url)
+    );
+    if (configRepo) {
+      configRepo.branches = Array.from(repo.selectedBranches);
+    }
+  }
+}
+
 // VCS切换（单选互斥）
 vcsToggleButtons.forEach(button => {
   button.addEventListener('click', async () => {
@@ -718,7 +768,9 @@ loginBtn.addEventListener('click', async () => {
           authorInput.value = connectionConfig.username;
         } else {
           // Git 模式：显示分支选择，获取 Git 用户名
-          branchGroup.classList.remove('hidden');
+          branchGroup.classList.add('hidden'); // 隐藏旧的全局分支选择器
+          // 显示多仓库分支选择器
+          renderGitRepoBranchesSelect();
           try {
             const gitUserResult = await window.gitlabAPI.getLocalGitUser();
             if (gitUserResult.success && gitUserResult.userName) {
