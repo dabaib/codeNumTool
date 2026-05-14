@@ -2119,3 +2119,942 @@ ipcMain.handle('batch-code-review', async (event, { apiUrl, model, authorization
     return { success: false, error: `批量代码审查失败: ${error.message}` };
   }
 });
+
+// ============================================
+// 多仓库混合查询
+// ============================================
+
+// 获取多个 Git 仓库的统计（支持本地和 SSH 模式）
+async function getGitMultiReposStats(repos, author, year, month, threshold, formatThreshold, startDate, endDate) {
+  const startD = startDate || `${year}-${String(month).padStart(2, '0')}-01`;
+  const endMonth = month === 12 ? 1 : month + 1;
+  const endYear = month === 12 ? year + 1 : year;
+  const endD = endDate || `${endYear}-${String(endMonth).padStart(2, '0')}-01`;
+
+  const allCommits = [];
+  const branchStats = {};
+  const activeDaysSet = new Set();
+  const commitTypeStats = {};
+  const processedHashes = new Set();
+  const chartDataMap = {};
+
+  for (const repo of repos) {
+    try {
+      let result;
+      if (repo.type === 'local') {
+        // 本地仓库模式
+        result = await getLocalStats(repo.repoPath, repo.branches, author, startD, endD, threshold, formatThreshold);
+      } else if (repo.type === 'ssh') {
+        // SSH 远程模式
+        result = await getSshStats(repo.repoUrl, repo.branches, author, startD, endD, threshold, formatThreshold);
+      } else if (repo.type === 'api') {
+        // GitLab API 模式
+        result = await getGitLabApiStats(repo.gitlabUrl, repo.token, repo.projectId, repo.projectName, repo.branches, author, startDate || startD, endDate || endD, threshold, formatThreshold);
+      }
+
+      if (result && result.success) {
+        // 合并提交
+        for (const commit of result.data.commits) {
+          commit.source = 'git';
+          commit.project = `[Git] ${repo.repoName || repo.repoUrl}`;
+          allCommits.push(commit);
+        }
+
+        // 合并活跃天数
+        for (const day of (result.data.activeDays || [])) {
+          activeDaysSet.add(day);
+        }
+
+        // 合并提交类型统计
+        for (const [type, count] of Object.entries(result.data.commitTypeStats || {})) {
+          commitTypeStats[type] = (commitTypeStats[type] || 0) + count;
+        }
+
+        // 合并分支统计
+        for (const [branch, stats] of Object.entries(result.data.branchStats || {})) {
+          if (!branchStats[branch]) {
+            branchStats[branch] = {
+              totalAdded: 0, totalDeleted: 0, totalCommits: 0,
+              overThresholdCount: 0, formatCodeCount: 0,
+              featCount: 0, fixCount: 0, otherCount: 0,
+              dailyStats: {}
+            };
+          }
+          const bs = branchStats[branch];
+          bs.totalAdded += stats.totalAdded;
+          bs.totalDeleted += stats.totalDeleted;
+          bs.totalCommits += stats.totalCommits;
+          bs.overThresholdCount += stats.overThresholdCount;
+          bs.formatCodeCount += stats.formatCodeCount;
+          bs.featCount += stats.featCount;
+          bs.fixCount += stats.fixCount;
+          bs.otherCount += stats.otherCount;
+          for (const [day, dayStats] of Object.entries(stats.dailyStats || {})) {
+            if (!bs.dailyStats[day]) {
+              bs.dailyStats[day] = { added: 0, deleted: 0, commits: 0 };
+            }
+            bs.dailyStats[day].added += dayStats.added;
+            bs.dailyStats[day].deleted += dayStats.deleted;
+            bs.dailyStats[day].commits += dayStats.commits;
+          }
+        }
+
+        // 合并图表数据
+        for (const day of (result.data.chartData || [])) {
+          if (chartDataMap[day.date]) {
+            chartDataMap[day.date].added += day.added;
+            chartDataMap[day.date].deleted += day.deleted;
+            chartDataMap[day.date].commits += day.commits;
+          } else {
+            chartDataMap[day.date] = { ...day };
+          }
+        }
+      }
+    } catch (repoError) {
+      console.error(`Error processing repo ${repo.repoName || repo.repoUrl}:`, repoError.message);
+    }
+  }
+
+  // 汇总统计
+  let totalAdded = 0, totalDeleted = 0, totalCommits = 0, overThresholdCount = 0, formatCodeCount = 0;
+  for (const bName of Object.keys(branchStats)) {
+    const bs = branchStats[bName];
+    totalAdded += bs.totalAdded;
+    totalDeleted += bs.totalDeleted;
+    totalCommits += bs.totalCommits;
+    overThresholdCount += bs.overThresholdCount;
+    formatCodeCount += bs.formatCodeCount;
+  }
+
+  allCommits.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+  const chartData = Object.values(chartDataMap).sort((a, b) => a.date.localeCompare(b.date));
+
+  return {
+    success: true,
+    data: {
+      totalAdded, totalDeleted, totalCommits, overThresholdCount, formatCodeCount,
+      activeDays: Array.from(activeDaysSet),
+      commitTypeStats,
+      chartData,
+      commits: allCommits,
+      branchStats
+    }
+  };
+}
+
+// 本地仓库统计（抽取为独立函数）
+async function getLocalStats(repoPath, branches, author, startD, endD, threshold, formatThreshold) {
+  const allCommits = [];
+  const branchStats = {};
+  const activeDaysSet = new Set();
+  const commitTypeStats = {};
+  const processedHashes = new Set();
+
+  for (const branch of branches) {
+    const branchName = branch.trim();
+    if (!branchName) continue;
+
+    if (!branchStats[branchName]) {
+      branchStats[branchName] = {
+        totalAdded: 0, totalDeleted: 0, totalCommits: 0,
+        overThresholdCount: 0, formatCodeCount: 0,
+        featCount: 0, fixCount: 0, otherCount: 0,
+        dailyStats: {}
+      };
+    }
+
+    const logSeparator = '---COMMIT-SEPARATOR---';
+    const logFormat = `%H%n%aN%n%cN%n%ai%n%s%n%b${logSeparator}`;
+
+    try {
+      let logCommand = `git -C "${repoPath}" log origin/${branchName} --since="${startD}" --until="${endD}" --pretty=format:"${logFormat}"`;
+      let logOutput;
+
+      try {
+        logOutput = await runCommand(logCommand);
+      } catch (e) {
+        logCommand = `git -C "${repoPath}" log ${branchName} --since="${startD}" --until="${endD}" --pretty=format:"${logFormat}"`;
+        logOutput = await runCommand(logCommand);
+      }
+
+      const commitLogs = logOutput.split(logSeparator).filter(log => log.trim() !== '');
+      const authorToMatch = author.toLowerCase();
+
+      for (const log of commitLogs) {
+        const lines = log.trim().split('\n');
+        if (lines.length < 4) continue;
+
+        const hash = lines[0];
+        if (processedHashes.has(hash)) continue;
+        processedHashes.add(hash);
+
+        const commitAuthor = lines[1];
+        const commitCommitter = lines[2];
+
+        if (commitAuthor.toLowerCase() !== authorToMatch &&
+          commitCommitter.toLowerCase() !== authorToMatch) {
+          continue;
+        }
+
+        const date = lines[3].replace(' ', 'T') + 'Z';
+        const message = lines.slice(4).join('\n').trim();
+        const commitType = parseCommitType(message);
+        const dateStr = date.substring(0, 10);
+
+        let added = 0, deleted = 0;
+        try {
+          const showCommand = `git -C "${repoPath}" show --shortstat ${hash}`;
+          const showOutput = await runCommand(showCommand);
+
+          const lines_show = showOutput.split('\n');
+          let statLine = '';
+          for (let i = lines_show.length - 1; i >= 0; i--) {
+            if (lines_show[i].includes('changed') || lines_show[i].includes('insertion') || lines_show[i].includes('deletion')) {
+              statLine = lines_show[i].trim();
+              break;
+            }
+          }
+
+          if (statLine) {
+            const insertionsMatch = statLine.match(/(\d+)\s+insertion/);
+            const deletionsMatch = statLine.match(/(\d+)\s+deletion/);
+            added = insertionsMatch ? parseInt(insertionsMatch[1], 10) : 0;
+            deleted = deletionsMatch ? parseInt(deletionsMatch[1], 10) : 0;
+          }
+        } catch (showError) {
+          console.error(`Error getting stats for commit ${hash}:`, showError.message);
+        }
+
+        const status = getCommitStatus(added, deleted, threshold, formatThreshold);
+        activeDaysSet.add(dateStr);
+        commitTypeStats[commitType] = (commitTypeStats[commitType] || 0) + 1;
+
+        const msgIndex = allCommits.length;
+        const prevMessages = allCommits.map(c => c.message);
+        const msgAnalysis = analyzeCommitMessage(message, [...prevMessages, message], msgIndex);
+
+        allCommits.push({
+          project: branchName,
+          projectUrl: repoPath,
+          revision: hash.substring(0, 7),
+          fullHash: hash,
+          date,
+          author: commitAuthor,
+          message: message.split('\n')[0],
+          commitType,
+          added,
+          deleted,
+          net: added - deleted,
+          status,
+          normStatus: msgAnalysis.normStatus,
+          isDuplicate: msgAnalysis.isDuplicate
+        });
+
+        const bs = branchStats[branchName];
+        bs.totalAdded += added;
+        bs.totalDeleted += deleted;
+        bs.totalCommits += 1;
+        if (status === 'over') bs.overThresholdCount += 1;
+        if (status === 'format') bs.formatCodeCount += 1;
+        if (commitType === 'feat') bs.featCount += 1;
+        else if (commitType === 'fix') bs.fixCount += 1;
+        else bs.otherCount += 1;
+
+        if (!bs.dailyStats[dateStr]) {
+          bs.dailyStats[dateStr] = { added: 0, deleted: 0, commits: 0 };
+        }
+        bs.dailyStats[dateStr].added += added;
+        bs.dailyStats[dateStr].deleted += deleted;
+        bs.dailyStats[dateStr].commits += 1;
+      }
+    } catch (branchError) {
+      console.error(`Error processing branch ${branchName}:`, branchError.message);
+    }
+  }
+
+  // 生成图表数据
+  const chartData = [];
+  const _start = new Date(startD);
+  const _end = new Date(endD);
+  _end.setDate(_end.getDate() - 1);
+  let currDay = new Date(startD);
+  let targetEnd = new Date(endD);
+  targetEnd.setDate(targetEnd.getDate() - 1);
+
+  let limit = 0;
+  while (currDay <= targetEnd && limit++ < 2000) {
+    const _y = currDay.getFullYear();
+    const _m = String(currDay.getMonth() + 1).padStart(2, '0');
+    const _d = String(currDay.getDate()).padStart(2, '0');
+    const dateStr = `${_y}-${_m}-${_d}`;
+    currDay.setDate(currDay.getDate() + 1);
+    let dayAdded = 0, dayDeleted = 0, dayCommits = 0;
+
+    for (const bName of Object.keys(branchStats)) {
+      const ds = branchStats[bName].dailyStats[dateStr];
+      if (ds) {
+        dayAdded += ds.added;
+        dayDeleted += ds.deleted;
+        dayCommits += ds.commits;
+      }
+    }
+    chartData.push({ date: dateStr, added: dayAdded, deleted: dayDeleted, commits: dayCommits });
+  }
+
+  return {
+    success: true,
+    data: {
+      totalAdded: Object.values(branchStats).reduce((sum, bs) => sum + bs.totalAdded, 0),
+      totalDeleted: Object.values(branchStats).reduce((sum, bs) => sum + bs.totalDeleted, 0),
+      totalCommits: Object.values(branchStats).reduce((sum, bs) => sum + bs.totalCommits, 0),
+      overThresholdCount: Object.values(branchStats).reduce((sum, bs) => sum + bs.overThresholdCount, 0),
+      formatCodeCount: Object.values(branchStats).reduce((sum, bs) => sum + bs.formatCodeCount, 0),
+      activeDays: Array.from(activeDaysSet),
+      commitTypeStats,
+      chartData,
+      commits: allCommits,
+      branchStats
+    }
+  };
+}
+
+// SSH 远程仓库统计（抽取为独立函数）
+async function getSshStats(repoUrl, branches, author, startD, endD, threshold, formatThreshold) {
+  const allCommits = [];
+  const branchStats = {};
+  const activeDaysSet = new Set();
+  const commitTypeStats = {};
+  const processedHashes = new Set();
+
+  const tempDir = path.join(app.getPath('temp'), `jixiao-ssh-multi-${Date.now()}`);
+  await fs.ensureDir(tempDir);
+
+  try {
+    const localDir = repoUrl.split('/').pop().replace('.git', '');
+    const repoPath = path.join(tempDir, localDir);
+
+    await runCommand(`git clone "${repoUrl}" "${repoPath}"`);
+
+    let targetBranches = branches;
+    if (!targetBranches || targetBranches.length === 0) {
+      try {
+        const headRefCmd = `git -C "${repoPath}" symbolic-ref refs/remotes/origin/HEAD`;
+        const headRef = await runCommand(headRefCmd);
+        const defaultBranch = headRef.split('/').pop().trim();
+        if (defaultBranch) {
+          targetBranches = [defaultBranch];
+        } else {
+          throw new Error('Could not determine default branch.');
+        }
+      } catch (e) {
+        throw new Error('无法确定默认分支，请尝试手动选择一个分支。');
+      }
+    }
+
+    for (const branch of targetBranches) {
+      const branchName = branch.trim();
+      if (!branchName) continue;
+
+      if (!branchStats[branchName]) {
+        branchStats[branchName] = {
+          totalAdded: 0, totalDeleted: 0, totalCommits: 0,
+          overThresholdCount: 0, formatCodeCount: 0,
+          featCount: 0, fixCount: 0, otherCount: 0,
+          dailyStats: {}
+        };
+      }
+
+      const logSeparator = '---COMMIT-SEPARATOR---';
+      const logFormat = `%H%n%aN%n%cN%n%ai%n%s%n%b${logSeparator}`;
+      const logCommand = `git -C "${repoPath}" log origin/${branchName} --since="${startD}" --until="${endD}" --pretty=format:"${logFormat}"`;
+
+      const logOutput = await runCommand(logCommand);
+      const commitLogs = logOutput.split(logSeparator).filter(log => log.trim() !== '');
+      const authorToMatch = author.toLowerCase();
+
+      for (const log of commitLogs) {
+        const lines = log.trim().split('\n');
+        if (lines.length < 4) continue;
+
+        const hash = lines[0];
+        if (processedHashes.has(hash)) continue;
+        processedHashes.add(hash);
+
+        const commitAuthor = lines[1];
+        const commitCommitter = lines[2];
+
+        if (commitAuthor.toLowerCase() !== authorToMatch &&
+          commitCommitter.toLowerCase() !== authorToMatch) {
+          continue;
+        }
+
+        const date = lines[3].replace(' ', 'T') + 'Z';
+        const message = lines.slice(4).join('\n').trim();
+        const commitType = parseCommitType(message);
+        const dateStr = date.substring(0, 10);
+
+        let added = 0, deleted = 0;
+        try {
+          const showCommand = `git -C "${repoPath}" show --shortstat ${hash}`;
+          const showOutput = await runCommand(showCommand);
+
+          const lines_show = showOutput.split('\n');
+          let statLine = '';
+          for (let i = lines_show.length - 1; i >= 0; i--) {
+            if (lines_show[i].includes('changed') || lines_show[i].includes('insertion') || lines_show[i].includes('deletion')) {
+              statLine = lines_show[i].trim();
+              break;
+            }
+          }
+
+          if (statLine) {
+            const insertionsMatch = statLine.match(/(\d+)\s+insertion/);
+            const deletionsMatch = statLine.match(/(\d+)\s+deletion/);
+            added = insertionsMatch ? parseInt(insertionsMatch[1], 10) : 0;
+            deleted = deletionsMatch ? parseInt(deletionsMatch[1], 10) : 0;
+          }
+        } catch (showError) {
+          console.error(`Error getting stats for commit ${hash}:`, showError.message);
+        }
+
+        const status = getCommitStatus(added, deleted, threshold, formatThreshold);
+        activeDaysSet.add(dateStr);
+        commitTypeStats[commitType] = (commitTypeStats[commitType] || 0) + 1;
+
+        const msgIndex = allCommits.length;
+        const prevMessages = allCommits.map(c => c.message);
+        const msgAnalysis = analyzeCommitMessage(message, [...prevMessages, message], msgIndex);
+
+        allCommits.push({
+          project: branchName,
+          projectUrl: repoUrl,
+          revision: hash.substring(0, 7),
+          fullHash: hash,
+          date,
+          author: commitAuthor,
+          message: message.split('\n')[0],
+          commitType,
+          added,
+          deleted,
+          net: added - deleted,
+          status,
+          normStatus: msgAnalysis.normStatus,
+          isDuplicate: msgAnalysis.isDuplicate
+        });
+
+        const bs = branchStats[branchName];
+        bs.totalAdded += added;
+        bs.totalDeleted += deleted;
+        bs.totalCommits += 1;
+        if (status === 'over') bs.overThresholdCount += 1;
+        if (status === 'format') bs.formatCodeCount += 1;
+        if (commitType === 'feat') bs.featCount += 1;
+        else if (commitType === 'fix') bs.fixCount += 1;
+        else bs.otherCount += 1;
+
+        if (!bs.dailyStats[dateStr]) {
+          bs.dailyStats[dateStr] = { added: 0, deleted: 0, commits: 0 };
+        }
+        bs.dailyStats[dateStr].added += added;
+        bs.dailyStats[dateStr].deleted += deleted;
+        bs.dailyStats[dateStr].commits += 1;
+      }
+    }
+
+    // 生成图表数据
+    const chartData = [];
+    let currDay = new Date(startD);
+    let targetEnd = new Date(endD);
+    targetEnd.setDate(targetEnd.getDate() - 1);
+
+    let limit = 0;
+    while (currDay <= targetEnd && limit++ < 2000) {
+      const _y = currDay.getFullYear();
+      const _m = String(currDay.getMonth() + 1).padStart(2, '0');
+      const _d = String(currDay.getDate()).padStart(2, '0');
+      const dateStr = `${_y}-${_m}-${_d}`;
+      currDay.setDate(currDay.getDate() + 1);
+      let dayAdded = 0, dayDeleted = 0, dayCommits = 0;
+
+      for (const bName of Object.keys(branchStats)) {
+        const ds = branchStats[bName].dailyStats[dateStr];
+        if (ds) {
+          dayAdded += ds.added;
+          dayDeleted += ds.deleted;
+          dayCommits += ds.commits;
+        }
+      }
+      chartData.push({ date: dateStr, added: dayAdded, deleted: dayDeleted, commits: dayCommits });
+    }
+
+    return {
+      success: true,
+      data: {
+        totalAdded: Object.values(branchStats).reduce((sum, bs) => sum + bs.totalAdded, 0),
+        totalDeleted: Object.values(branchStats).reduce((sum, bs) => sum + bs.totalDeleted, 0),
+        totalCommits: Object.values(branchStats).reduce((sum, bs) => sum + bs.totalCommits, 0),
+        overThresholdCount: Object.values(branchStats).reduce((sum, bs) => sum + bs.overThresholdCount, 0),
+        formatCodeCount: Object.values(branchStats).reduce((sum, bs) => sum + bs.formatCodeCount, 0),
+        activeDays: Array.from(activeDaysSet),
+        commitTypeStats,
+        chartData,
+        commits: allCommits,
+        branchStats
+      }
+    };
+  } finally {
+    await fs.remove(tempDir);
+  }
+}
+
+// GitLab API 模式统计（抽取为独立函数）
+async function getGitLabApiStats(gitlabUrl, token, projectId, projectName, branches, author, startDate, endDate, threshold, formatThreshold) {
+  const baseUrl = gitlabUrl.replace(/\/+$/, '');
+  const allCommits = [];
+  const branchStats = {};
+  const activeDaysSet = new Set();
+  const commitTypeStats = {};
+  const processedHashes = new Set();
+
+  for (const branch of branches) {
+    const branchName = branch.trim();
+    if (!branchName) continue;
+
+    if (!branchStats[branchName]) {
+      branchStats[branchName] = {
+        totalAdded: 0, totalDeleted: 0, totalCommits: 0,
+        overThresholdCount: 0, formatCodeCount: 0,
+        featCount: 0, fixCount: 0, otherCount: 0,
+        dailyStats: {}
+      };
+    }
+
+    let page = 1;
+    let hasMore = true;
+
+    while (hasMore) {
+      const commitsUrl = `${baseUrl}/api/v4/projects/${encodeURIComponent(projectId)}/repository/commits?ref_name=${encodeURIComponent(branch)}&since=${startDate}&until=${endDate}&per_page=100&page=${page}`;
+
+      const commitsResponse = await gitlabApiRequest(commitsUrl, token);
+      if (!commitsResponse.success) {
+        console.error(`获取提交列表失败: ${commitsResponse.error}`);
+        break;
+      }
+
+      const commits = commitsResponse.data;
+      if (commits.length === 0) {
+        hasMore = false;
+        break;
+      }
+
+      if (commits.length < 100) {
+        hasMore = false;
+      }
+
+      const authorToMatch = author.toLowerCase();
+
+      for (const commit of commits) {
+        if (commit.author_name.toLowerCase() !== authorToMatch) {
+          continue;
+        }
+
+        if (processedHashes.has(commit.id)) continue;
+        processedHashes.add(commit.id);
+
+        const commitDetailUrl = `${baseUrl}/api/v4/projects/${encodeURIComponent(projectId)}/repository/commits/${commit.id}`;
+        const detailResponse = await gitlabApiRequest(commitDetailUrl, token);
+
+        let added = 0, deleted = 0;
+
+        if (detailResponse.success && detailResponse.data.stats) {
+          added = detailResponse.data.stats.additions || 0;
+          deleted = detailResponse.data.stats.deletions || 0;
+        }
+
+        const status = getCommitStatus(added, deleted, threshold, formatThreshold);
+        const dateStr = commit.created_at.substring(0, 10);
+        activeDaysSet.add(dateStr);
+
+        const commitType = parseCommitType(commit.message);
+        commitTypeStats[commitType] = (commitTypeStats[commitType] || 0) + 1;
+
+        const msgIndex = allCommits.length;
+        const prevMessages = allCommits.map(c => c.message);
+        const msgAnalysis = analyzeCommitMessage(commit.message, [...prevMessages, commit.message], msgIndex);
+
+        allCommits.push({
+          project: branchName,
+          projectUrl: `${gitlabUrl}/project/${projectId}`,
+          revision: commit.id.substring(0, 7),
+          fullHash: commit.id,
+          date: commit.created_at,
+          author: commit.author_name,
+          message: commit.message.split('\n')[0],
+          commitType,
+          added,
+          deleted,
+          net: added - deleted,
+          status,
+          normStatus: msgAnalysis.normStatus,
+          isDuplicate: msgAnalysis.isDuplicate
+        });
+
+        const bs = branchStats[branchName];
+        bs.totalAdded += added;
+        bs.totalDeleted += deleted;
+        bs.totalCommits += 1;
+        if (status === 'over') bs.overThresholdCount += 1;
+        if (status === 'format') bs.formatCodeCount += 1;
+        if (commitType === 'feat') bs.featCount += 1;
+        else if (commitType === 'fix') bs.fixCount += 1;
+        else bs.otherCount += 1;
+
+        if (!bs.dailyStats[dateStr]) {
+          bs.dailyStats[dateStr] = { added: 0, deleted: 0, commits: 0 };
+        }
+        bs.dailyStats[dateStr].added += added;
+        bs.dailyStats[dateStr].deleted += deleted;
+        bs.dailyStats[dateStr].commits += 1;
+      }
+
+      page++;
+    }
+  }
+
+  // 生成图表数据
+  const chartData = [];
+  let currDay = new Date(startDate);
+  let targetEnd = new Date(endDate);
+  targetEnd.setDate(targetEnd.getDate() - 1);
+
+  let limit = 0;
+  while (currDay <= targetEnd && limit++ < 2000) {
+    const _y = currDay.getFullYear();
+    const _m = String(currDay.getMonth() + 1).padStart(2, '0');
+    const _d = String(currDay.getDate()).padStart(2, '0');
+    const dateStr = `${_y}-${_m}-${_d}`;
+    currDay.setDate(currDay.getDate() + 1);
+    let dayAdded = 0, dayDeleted = 0, dayCommits = 0;
+
+    for (const bName of Object.keys(branchStats)) {
+      const ds = branchStats[bName].dailyStats[dateStr];
+      if (ds) {
+        dayAdded += ds.added;
+        dayDeleted += ds.deleted;
+        dayCommits += ds.commits;
+      }
+    }
+    chartData.push({ date: dateStr, added: dayAdded, deleted: dayDeleted, commits: dayCommits });
+  }
+
+  return {
+    success: true,
+    data: {
+      totalAdded: Object.values(branchStats).reduce((sum, bs) => sum + bs.totalAdded, 0),
+      totalDeleted: Object.values(branchStats).reduce((sum, bs) => sum + bs.totalDeleted, 0),
+      totalCommits: Object.values(branchStats).reduce((sum, bs) => sum + bs.totalCommits, 0),
+      overThresholdCount: Object.values(branchStats).reduce((sum, bs) => sum + bs.overThresholdCount, 0),
+      formatCodeCount: Object.values(branchStats).reduce((sum, bs) => sum + bs.formatCodeCount, 0),
+      activeDays: Array.from(activeDaysSet),
+      commitTypeStats,
+      chartData,
+      commits: allCommits,
+      branchStats
+    }
+  };
+}
+
+// 多仓库混合查询 IPC Handler
+ipcMain.handle('multi-stats', async (event, config) => {
+  const { svn, git, author, year, month, threshold, formatThreshold, startDate, endDate } = config;
+  const results = { svn: null, git: null };
+
+  const promises = [];
+
+  // SVN 查询
+  if (svn && svn.projects && svn.projects.length > 0) {
+    promises.push((async () => {
+      try {
+        const result = await getSvnStats(svn.projects, svn.username, svn.password, author, year, month, threshold, formatThreshold, startDate, endDate);
+        results.svn = result;
+      } catch (e) {
+        results.svn = { success: false, error: e.message };
+      }
+    })());
+  }
+
+  // Git 查询
+  if (git && git.repos && git.repos.length > 0) {
+    promises.push((async () => {
+      try {
+        const result = await getGitMultiReposStats(git.repos, author, year, month, threshold, formatThreshold, startDate, endDate);
+        results.git = result;
+      } catch (e) {
+        results.git = { success: false, error: e.message };
+      }
+    })());
+  }
+
+  await Promise.all(promises);
+
+  // 合并结果
+  return mergeMultiRepoResults(results);
+});
+
+// 合并多仓库结果
+function mergeMultiRepoResults(results) {
+  const merged = {
+    success: true,
+    totalCommits: 0,
+    totalAdded: 0,
+    totalDeleted: 0,
+    overThresholdCount: 0,
+    formatCodeCount: 0,
+    activeDays: new Set(),
+    commitTypeStats: {},
+    chartData: {},
+    commits: [],
+    projectStats: {},
+    branchStats: {}
+  };
+
+  // 处理 SVN 结果
+  if (results.svn && results.svn.success) {
+    const svn = results.svn.data;
+    for (const commit of svn.commits) {
+      commit.source = 'svn';
+      commit.project = '[SVN] ' + commit.project;
+      merged.commits.push(commit);
+    }
+    merged.totalCommits += svn.totalCommits;
+    merged.totalAdded += svn.totalAdded;
+    merged.totalDeleted += svn.totalDeleted;
+    merged.overThresholdCount += svn.overThresholdCount;
+    merged.formatCodeCount += svn.formatCodeCount;
+    for (const day of (svn.activeDays || [])) merged.activeDays.add(day);
+    for (const [type, count] of Object.entries(svn.commitTypeStats || {})) {
+      merged.commitTypeStats[type] = (merged.commitTypeStats[type] || 0) + count;
+    }
+    Object.assign(merged.projectStats, svn.projectStats || {});
+    // 合并 chartData
+    for (const day of svn.chartData || []) {
+      const existing = merged.chartData[day.date];
+      if (existing) {
+        existing.added += day.added;
+        existing.deleted += day.deleted;
+        existing.commits += day.commits;
+      } else {
+        merged.chartData[day.date] = { ...day };
+      }
+    }
+  }
+
+  // 处理 Git 结果
+  if (results.git && results.git.success) {
+    const git = results.git.data;
+    for (const commit of git.commits) {
+      commit.source = 'git';
+      commit.project = '[Git] ' + commit.project;
+      merged.commits.push(commit);
+    }
+    merged.totalCommits += git.totalCommits;
+    merged.totalAdded += git.totalAdded;
+    merged.totalDeleted += git.totalDeleted;
+    merged.overThresholdCount += git.overThresholdCount;
+    merged.formatCodeCount += git.formatCodeCount;
+    for (const day of (git.activeDays || [])) merged.activeDays.add(day);
+    for (const [type, count] of Object.entries(git.commitTypeStats || {})) {
+      merged.commitTypeStats[type] = (merged.commitTypeStats[type] || 0) + count;
+    }
+    Object.assign(merged.branchStats, git.branchStats || {});
+    // 合并 chartData
+    for (const day of git.chartData || []) {
+      const existing = merged.chartData[day.date];
+      if (existing) {
+        existing.added += day.added;
+        existing.deleted += day.deleted;
+        existing.commits += day.commits;
+      } else {
+        merged.chartData[day.date] = { ...day };
+      }
+    }
+  }
+
+  merged.activeDays = Array.from(merged.activeDays);
+  merged.chartData = Object.values(merged.chartData).sort((a, b) => a.date.localeCompare(b.date));
+
+  return { success: true, data: merged };
+}
+
+// SVN 统计查询函数（抽取为独立函数供 multi-stats 调用）
+async function getSvnStats(projects, username, password, author, year, month, threshold, formatThreshold, startDate, endDate) {
+  const startD = startDate || `${year}-${String(month).padStart(2, '0')}-01`;
+  const endMonth = month === 12 ? 1 : month + 1;
+  const endYear = month === 12 ? year + 1 : year;
+  const endD = endDate || `${endYear}-${String(endMonth).padStart(2, '0')}-01`;
+
+  const allCommits = [];
+  const projectStats = {};
+  const activeDaysSet = new Set();
+  const commitTypeStats = {};
+
+  for (const project of projects) {
+    try {
+      const logCommand = `svn log "${project.url}" --username "${username}" --password "${password}" --non-interactive --trust-server-cert-failures=unknown-ca,cn-mismatch,expired,not-yet-valid,other -r {${startD}}:{${endD}} --search "${author}" --xml`;
+
+      const logOutput = await runSvnCommand(logCommand);
+
+      const entries = logOutput.split('</logentry>');
+
+      for (const entry of entries) {
+        const revMatch = /<logentry\s+revision="(\d+)">/.exec(entry);
+        const dateMatch = /<date>([^<]+)<\/date>/.exec(entry);
+        const authorMatch = /<author>([^<]+)<\/author>/.exec(entry);
+        const msgMatch = /<msg>([^]*?)<\/msg>/.exec(entry);
+
+        if (revMatch && dateMatch && authorMatch) {
+          if (authorMatch[1].toLowerCase() === author.toLowerCase()) {
+            const message = msgMatch ? msgMatch[1].trim() : '';
+            const commitType = parseCommitType(message);
+
+            try {
+              const diffCommand = `svn diff "${project.url}" --username "${username}" --password "${password}" --non-interactive --trust-server-cert-failures=unknown-ca,cn-mismatch,expired,not-yet-valid,other -c ${revMatch[1]}`;
+              const diffOutput = await runSvnCommand(diffCommand);
+
+              const lines = diffOutput.split('\n');
+              let added = 0;
+              let deleted = 0;
+
+              for (const line of lines) {
+                if (line.startsWith('+') && !line.startsWith('+++')) {
+                  added++;
+                } else if (line.startsWith('-') && !line.startsWith('---')) {
+                  deleted++;
+                }
+              }
+
+              const status = getCommitStatus(added, deleted, threshold, formatThreshold);
+              const dateStr = dateMatch[1].substring(0, 10);
+
+              activeDaysSet.add(dateStr);
+              commitTypeStats[commitType] = (commitTypeStats[commitType] || 0) + 1;
+
+              const msgIndex = allCommits.length;
+              const prevMessages = allCommits.map(c => c.message);
+              const msgAnalysis = analyzeCommitMessage(message, [...prevMessages, message], msgIndex);
+
+              allCommits.push({
+                project: project.name,
+                projectUrl: project.url,
+                revision: revMatch[1],
+                date: dateMatch[1],
+                author: authorMatch[1],
+                message,
+                commitType,
+                added,
+                deleted,
+                net: added - deleted,
+                status,
+                normStatus: msgAnalysis.normStatus,
+                isDuplicate: msgAnalysis.isDuplicate
+              });
+
+              if (!projectStats[project.name]) {
+                projectStats[project.name] = {
+                  totalAdded: 0,
+                  totalDeleted: 0,
+                  totalCommits: 0,
+                  overThresholdCount: 0,
+                  formatCodeCount: 0,
+                  featCount: 0,
+                  fixCount: 0,
+                  otherCount: 0,
+                  dailyStats: {}
+                };
+              }
+
+              const ps = projectStats[project.name];
+              ps.totalAdded += added;
+              ps.totalDeleted += deleted;
+              ps.totalCommits += 1;
+
+              if (status === 'over') ps.overThresholdCount += 1;
+              if (status === 'format') ps.formatCodeCount += 1;
+
+              if (commitType === 'feat') {
+                ps.featCount += 1;
+              } else if (commitType === 'fix') {
+                ps.fixCount += 1;
+              } else {
+                ps.otherCount += 1;
+              }
+
+              if (!ps.dailyStats[dateStr]) {
+                ps.dailyStats[dateStr] = { added: 0, deleted: 0, commits: 0 };
+              }
+              ps.dailyStats[dateStr].added += added;
+              ps.dailyStats[dateStr].deleted += deleted;
+              ps.dailyStats[dateStr].commits += 1;
+
+            } catch (diffError) {
+              console.error(`Error getting diff for revision ${revMatch[1]}:`, diffError.message);
+            }
+          }
+        }
+      }
+    } catch (projectError) {
+      console.error(`Error processing project ${project.name}:`, projectError.message);
+    }
+  }
+
+  // 生成图表数据
+  const chartData = [];
+  let currDay = new Date(startDate ? startDate : `${year}-${String(month).padStart(2, '0')}-01`);
+  let targetEnd = new Date(endDate ? endDate : `${year}-${String(month).padStart(2, '0')}-${new Date(year, month, 0).getDate()}`);
+
+  let limit = 0;
+  while (currDay <= targetEnd && limit++ < 2000) {
+    const _y = currDay.getFullYear();
+    const _m = String(currDay.getMonth() + 1).padStart(2, '0');
+    const _d = String(currDay.getDate()).padStart(2, '0');
+    const dateStr = `${_y}-${_m}-${_d}`;
+    currDay.setDate(currDay.getDate() + 1);
+    let dayAdded = 0, dayDeleted = 0, dayCommits = 0;
+
+    for (const pName of Object.keys(projectStats)) {
+      const ds = projectStats[pName].dailyStats[dateStr];
+      if (ds) {
+        dayAdded += ds.added;
+        dayDeleted += ds.deleted;
+        dayCommits += ds.commits;
+      }
+    }
+    chartData.push({ date: dateStr, added: dayAdded, deleted: dayDeleted, commits: dayCommits });
+  }
+
+  // 汇总统计
+  let totalAdded = 0, totalDeleted = 0, totalCommits = 0, overThresholdCount = 0, formatCodeCount = 0;
+  for (const pName of Object.keys(projectStats)) {
+    const ps = projectStats[pName];
+    totalAdded += ps.totalAdded;
+    totalDeleted += ps.totalDeleted;
+    totalCommits += ps.totalCommits;
+    overThresholdCount += ps.overThresholdCount;
+    formatCodeCount += ps.formatCodeCount;
+  }
+
+  allCommits.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+  return {
+    success: true,
+    data: {
+      totalAdded, totalDeleted, totalCommits, overThresholdCount, formatCodeCount,
+      activeDays: Array.from(activeDaysSet),
+      commitTypeStats,
+      chartData,
+      commits: allCommits,
+      projectStats
+    }
+  };
+}

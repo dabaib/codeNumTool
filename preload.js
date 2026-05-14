@@ -64,3 +64,8 @@ contextBridge.exposeInMainWorld('codeReviewAPI', {
   batchReview: ({ apiUrl, model, authorization, commits }) =>
     ipcRenderer.invoke('batch-code-review', { apiUrl, model, authorization, commits })
 });
+
+// 多仓库混合查询 API
+contextBridge.exposeInMainWorld('multiRepoAPI', {
+  getStats: (config) => ipcRenderer.invoke('multi-stats', config)
+});
