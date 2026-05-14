@@ -47,54 +47,12 @@
 
       <!-- GitLab项目配置 (默认隐藏) -->
       <div id="gitlabProjectConfig" class="hidden">
-
-        <!-- GitLab 子模式切换 -->
-        <div class="form-group">
-          <label>连接方式:</label>
-          <div class="gitlab-mode-toggle">
-            <button type="button" class="gitlab-mode-btn active" data-mode="local">本地仓库</button>
-            <button type="button" class="gitlab-mode-btn" data-mode="ssh">SSH 远程</button>
-          </div>
+        <!-- Git 仓库列表容器 -->
+        <div id="gitReposContainer" class="git-repos-container">
+          <!-- 动态生成的仓库卡片 -->
         </div>
-
-        <!-- 本地扫描模式配置 -->
-        <div id="gitlabLocalConfig">
-          <p class="mode-hint">本地模式: 直接读取本地已克隆的 Git 仓库，速度快，无需网络连接。</p>
-
-          <div class="form-group">
-            <label>本地仓库:</label>
-            <div class="local-repo-selector">
-              <input type="text" id="localRepoPath" readonly placeholder="点击选择本地 Git 仓库目录">
-              <button type="button" id="selectRepoBtn" class="btn btn-small">选择目录</button>
-            </div>
-          </div>
-
-          <div id="localRepoInfo" class="project-info hidden">
-            <span class="repo-name-display"></span>
-            <span class="branch-count"></span>
-          </div>
-        </div>
-
-        <!-- SSH 远程模式配置 -->
-        <div id="gitlabSshConfig" class="hidden">
-          <p class="mode-hint">SSH 模式: 通过 SSH 连接远程仓库，需要已配置 SSH Key。</p>
-
-          <div class="form-group">
-            <label>Git SSH 地址:</label>
-            <input type="text" id="sshRepoUrl" placeholder="git@gitlab.example.com:group/project.git">
-          </div>
-
-          <div class="form-group">
-            <button type="button" id="testSshBtn" class="btn btn-small">测试连接</button>
-            <span id="sshTestStatus" class="status"></span>
-          </div>
-
-          <div id="sshRepoInfo" class="project-info hidden">
-            <span class="repo-name-display"></span>
-            <span class="branch-count"></span>
-          </div>
-        </div>
-
+        <!-- 添加 Git 仓库按钮 -->
+        <button type="button" id="addGitRepoBtn" class="btn btn-small">+ 添加 Git 仓库</button>
       </div>
 
       <!-- SVN用户名密码（Git模式隐藏） -->

@@ -136,6 +136,71 @@ h1 {
   background: #f5c6cb;
 }
 
+/* Git 仓库列表样式 */
+.git-repos-container {
+  margin-bottom: 15px;
+}
+
+.git-repo-card {
+  border: 1px solid #dcdfe6;
+  border-radius: 4px;
+  margin-bottom: 12px;
+  overflow: hidden;
+}
+
+.git-repo-card .repo-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 15px;
+  background: #f5f7fa;
+  border-bottom: 1px solid #dcdfe6;
+  font-weight: 600;
+}
+
+.git-repo-card .repo-header .btn-remove {
+  width: 28px;
+  height: 28px;
+  font-size: 16px;
+}
+
+.git-repo-card .repo-body {
+  padding: 15px;
+}
+
+.git-repo-card .repo-body .form-group {
+  margin-bottom: 10px;
+}
+
+.git-repo-card .repo-name-input,
+.git-repo-card .repo-path-input,
+.git-repo-card .repo-url-input {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid #dcdfe6;
+  border-radius: 4px;
+  font-size: 14px;
+  box-sizing: border-box;
+}
+
+.git-repo-card .repo-mode-select {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid #dcdfe6;
+  border-radius: 4px;
+  font-size: 14px;
+}
+
+.git-repo-card .repo-branches-container {
+  margin-top: 10px;
+}
+
+.git-repo-card .branch-status {
+  font-size: 12px;
+  color: #909399;
+  margin-top: 5px;
+}
+
 .btn {
   padding: 12px 30px;
   border: none;

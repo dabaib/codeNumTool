@@ -92,6 +92,185 @@ let connectionConfig = {
   aiApiKey: ''
 };
 
+// Git 多仓库列表
+let gitRepos = []; // { id, name, mode, url, path, branches, selectedBranches }
+
+// 添加 Git 仓库卡片
+document.addEventListener('DOMContentLoaded', () => {
+  const addGitRepoBtn = document.getElementById('addGitRepoBtn');
+  if (addGitRepoBtn) {
+    addGitRepoBtn.addEventListener('click', () => {
+      addGitRepoCard();
+    });
+  }
+  // 默认添加一个空卡片
+  addGitRepoCard();
+});
+
+function addGitRepoCard() {
+  const id = Date.now();
+  const repo = {
+    id,
+    name: '',
+    mode: 'local',
+    url: '',
+    path: '',
+    branches: [],
+    selectedBranches: new Set(['main', 'master'])
+  };
+  gitRepos.push(repo);
+  renderGitRepoCards();
+}
+
+function removeGitRepo(id) {
+  gitRepos = gitRepos.filter(r => r.id !== id);
+  renderGitRepoCards();
+}
+
+function renderGitRepoCards() {
+  const container = document.getElementById('gitReposContainer');
+  if (!container) return;
+
+  container.innerHTML = gitRepos.map((repo, index) => `
+    <div class="git-repo-card" data-id="${repo.id}">
+      <div class="repo-header">
+        <span>仓库 ${index + 1}: ${repo.name || '未命名'}</span>
+        <button type="button" class="btn-remove" onclick="removeGitRepo(${repo.id})">×</button>
+      </div>
+      <div class="repo-body">
+        <div class="form-group">
+          <input class="repo-name-input" placeholder="仓库名称" value="${repo.name}"
+            onchange="updateGitRepoName(${repo.id}, this.value)">
+        </div>
+        <div class="form-group">
+          <select class="repo-mode-select" onchange="updateGitRepoMode(${repo.id}, this.value)">
+            <option value="local" ${repo.mode === 'local' ? 'selected' : ''}>本地仓库</option>
+            <option value="ssh" ${repo.mode === 'ssh' ? 'selected' : ''}>SSH 远程</option>
+          </select>
+        </div>
+        ${repo.mode === 'local' ? `
+          <div class="form-group">
+            <div class="local-repo-selector">
+              <input type="text" class="repo-path-input" readonly placeholder="点击选择本地 Git 仓库目录" value="${repo.path}">
+              <button type="button" class="btn btn-small" onclick="selectLocalRepoForCard(${repo.id})">选择目录</button>
+            </div>
+          </div>
+        ` : `
+          <div class="form-group">
+            <input type="text" class="repo-url-input" placeholder="git@gitlab.example.com:group/project.git" value="${repo.url}"
+              onchange="updateGitRepoUrl(${repo.id}, this.value)">
+          </div>
+          <div class="form-group">
+            <button type="button" class="btn btn-small" onclick="testSshConnectionForCard(${repo.id})">测试连接</button>
+            <span class="branch-status" id="sshStatus-${repo.id}"></span>
+          </div>
+        `}
+        <div class="repo-branches-container">
+          <div class="branch-status" id="branchStatus-${repo.id}">
+            ${repo.branches.length > 0 ? `已加载 ${repo.branches.length} 个分支` : '请选择仓库以加载分支'}
+          </div>
+        </div>
+      </div>
+    </div>
+  `).join('');
+
+  // 更新全局分支列表（合并所有仓库的分支）
+  updateAllBranchesFromRepos();
+}
+
+function updateGitRepoName(id, name) {
+  const repo = gitRepos.find(r => r.id === id);
+  if (repo) {
+    repo.name = name;
+    renderGitRepoCards();
+  }
+}
+
+function updateGitRepoMode(id, mode) {
+  const repo = gitRepos.find(r => r.id === id);
+  if (repo) {
+    repo.mode = mode;
+    renderGitRepoCards();
+  }
+}
+
+function updateGitRepoUrl(id, url) {
+  const repo = gitRepos.find(r => r.id === id);
+  if (repo) {
+    repo.url = url;
+  }
+}
+
+async function selectLocalRepoForCard(id) {
+  const repo = gitRepos.find(r => r.id === id);
+  if (!repo) return;
+
+  try {
+    const result = await window.gitlabAPI.selectLocalRepo();
+    if (result.canceled) return;
+
+    if (result.success) {
+      repo.path = result.repoPath;
+      repo.name = result.repoName;
+      repo.branches = result.branches || [];
+      // 默认选中
+      repo.selectedBranches = new Set();
+      if (repo.branches.includes('main')) repo.selectedBranches.add('main');
+      else if (repo.branches.includes('master')) repo.selectedBranches.add('master');
+      else if (repo.branches.length > 0) repo.selectedBranches.add(repo.branches[0]);
+
+      renderGitRepoCards();
+
+      // 自动获取本地 git 用户名
+      const userResult = await window.gitlabAPI.getLocalGitUser();
+      if (userResult.success) {
+        authorInput.value = userResult.userName;
+      }
+    }
+  } catch (error) {
+    console.error('选择本地仓库失败:', error);
+  }
+}
+
+async function testSshConnectionForCard(id) {
+  const repo = gitRepos.find(r => r.id === id);
+  if (!repo || !repo.url) {
+    document.getElementById(`sshStatus-${id}`).textContent = '请输入 SSH 地址';
+    return;
+  }
+
+  const statusEl = document.getElementById(`sshStatus-${id}`);
+  statusEl.textContent = '测试中...';
+
+  try {
+    const result = await window.gitlabAPI.testSshConnection(repo.url);
+    if (result.success) {
+      repo.name = result.repoName;
+      repo.branches = result.branches || [];
+      repo.selectedBranches = new Set();
+      if (repo.branches.includes('main')) repo.selectedBranches.add('main');
+      else if (repo.branches.includes('master')) repo.selectedBranches.add('master');
+      else if (repo.branches.length > 0) repo.selectedBranches.add(repo.branches[0]);
+
+      statusEl.textContent = `连接成功: ${result.repoName}`;
+      renderGitRepoCards();
+    } else {
+      statusEl.textContent = `连接失败: ${result.error}`;
+    }
+  } catch (error) {
+    statusEl.textContent = `测试出错: ${error.message}`;
+  }
+}
+
+function updateAllBranchesFromRepos() {
+  // 合并所有仓库的分支用于全局分支选择（如果需要）
+  const allBranchSet = new Set();
+  gitRepos.forEach(repo => {
+    repo.branches.forEach(b => allBranchSet.add(b));
+  });
+  allBranches = Array.from(allBranchSet);
+}
+
 // VCS切换（支持多选）
 vcsToggleButtons.forEach(button => {
   button.addEventListener('click', async () => {
@@ -626,29 +805,32 @@ loginBtn.addEventListener('click', async () => {
       }
     }
 
-    // Git 登录验证
+    // Git 登录验证（多仓库模式）
     if (enabledModes.includes('git')) {
-      const gitlabMode = connectionConfig.gitlabMode;
+      // 检查是否至少配置了一个有效的 Git 仓库
+      const validRepos = gitRepos.filter(r => {
+        if (r.mode === 'local') return r.path && r.branches.length > 0;
+        if (r.mode === 'ssh') return r.url && r.branches.length > 0;
+        return false;
+      });
 
-      if (gitlabMode === 'local') {
-        // 本地模式: 验证必要配置
-        if (!connectionConfig.localRepoPath) {
-          showStatus(loginStatus, '请先选择本地仓库', 'error');
-          loginBtn.disabled = false;
-          return;
-        }
-        showStatus(loginStatus, '本地仓库已就绪', 'success');
-        results.git = { success: true };
-      } else {
-        // SSH 模式: 验证必要配置
-        if (!connectionConfig.sshRepoUrl) {
-          showStatus(loginStatus, '请先测试 SSH 连接', 'error');
-          loginBtn.disabled = false;
-          return;
-        }
-        showStatus(loginStatus, 'SSH 仓库已就绪', 'success');
-        results.git = { success: true };
+      if (validRepos.length === 0) {
+        showStatus(loginStatus, '请至少配置一个有效的 Git 仓库（本地需选择目录并加载分支，SSH 需测试连接成功）', 'error');
+        loginBtn.disabled = false;
+        return;
       }
+
+      // 更新 connectionConfig.git.repos
+      connectionConfig.git.repos = validRepos.map(r => ({
+        type: r.mode,
+        repoName: r.name || (r.mode === 'local' ? 'Local Repo' : 'SSH Repo'),
+        repoPath: r.path,
+        repoUrl: r.url,
+        branches: Array.from(r.selectedBranches).length > 0 ? Array.from(r.selectedBranches) : ['main', 'master']
+      }));
+
+      showStatus(loginStatus, `已就绪 ${validRepos.length} 个 Git 仓库`, 'success');
+      results.git = { success: true };
     }
 
     // 检查是否所有启用的模式都成功
@@ -766,38 +948,17 @@ queryBtn.addEventListener('click', async () => {
           endDateStr
         );
       } else {
-        // Git 单仓库模式（本地或 SSH）
-        const gitlabMode = connectionConfig.gitlabMode;
-        const repoBranches = Array.from(selectedBranchesSet);
-
-        if (gitlabMode === 'local') {
-          result = await window.gitlabAPI.localGetStats({
-            repoPath: connectionConfig.localRepoPath,
-            repoName: connectionConfig.localRepoName,
-            author,
-            branches: repoBranches.length > 0 ? repoBranches : ['main', 'master'],
-            year,
-            month,
-            threshold: connectionConfig.threshold,
-            formatThreshold: connectionConfig.formatThreshold,
-            startDate: startDateStr,
-            endDate: endDateStr
-          });
-        } else {
-          // SSH 模式
-          result = await window.gitlabAPI.sshGetStats({
-            repoUrl: connectionConfig.sshRepoUrl,
-            repoName: connectionConfig.sshRepoName,
-            author,
-            branches: repoBranches.length > 0 ? repoBranches : ['main', 'master'],
-            year,
-            month,
-            threshold: connectionConfig.threshold,
-            formatThreshold: connectionConfig.formatThreshold,
-            startDate: startDateStr,
-            endDate: endDateStr
-          });
-        }
+        // Git 模式（使用多仓库配置）
+        result = await window.multiRepoAPI.getStats({
+          author,
+          year,
+          month,
+          threshold: connectionConfig.threshold,
+          formatThreshold: connectionConfig.formatThreshold,
+          startDate: startDateStr,
+          endDate: endDateStr,
+          git: connectionConfig.git
+        });
       }
     } else {
       // 多模式：使用 multi-stats
@@ -820,30 +981,9 @@ queryBtn.addEventListener('click', async () => {
         };
       }
 
-      // Git 配置（从单仓库配置构造 repos 数组）
+      // Git 配置（使用登录时配置好的多仓库设置）
       if (connectionConfig.enabledModes.includes('git')) {
-        const gitlabMode = connectionConfig.gitlabMode;
-        const repoBranches = Array.from(selectedBranchesSet);
-
-        if (gitlabMode === 'local') {
-          config.git = {
-            repos: [{
-              type: 'local',
-              repoName: connectionConfig.localRepoName || 'Local Repo',
-              repoPath: connectionConfig.localRepoPath,
-              branches: repoBranches.length > 0 ? repoBranches : ['main', 'master']
-            }]
-          };
-        } else {
-          config.git = {
-            repos: [{
-              type: 'ssh',
-              repoName: connectionConfig.sshRepoName || 'SSH Repo',
-              repoUrl: connectionConfig.sshRepoUrl,
-              branches: repoBranches.length > 0 ? repoBranches : ['main', 'master']
-            }]
-          };
-        }
+        config.git = connectionConfig.git;
       }
 
       result = await window.multiRepoAPI.getStats(config);
