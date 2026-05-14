@@ -1033,9 +1033,143 @@ function renderBranchCheckboxes(groupName) {
   const branches = Object.keys(groupStats.dailyStats);
   return branches.map(branch => `
     <label class="branch-checkbox-label">
-      <input type="checkbox" value="${branch}" checked> ${branch}
+      <input type="checkbox" value="${branch}" checked onchange="onBranchFilterChange('${groupName}', this.checked)">
+      ${branch}
     </label>
   `).join('');
+}
+
+// 分支筛选变化处理
+function onBranchFilterChange(groupName, checked) {
+  // 获取该仓库下的所有分支复选框
+  const checkboxes = document.querySelectorAll(`.branch-filter[data-for="${groupName}"] input[type="checkbox"]`);
+  const selectedBranches = Array.from(checkboxes).filter(cb => cb.checked).map(cb => cb.value);
+
+  // 至少要选择一个分支
+  if (selectedBranches.length === 0) {
+    // 恢复该复选框的勾选状态
+    const checkbox = Array.from(checkboxes).find(cb => cb.value === groupName.split(' ').pop());
+    if (checkbox) checkbox.checked = true;
+    alert('请至少选择一个分支');
+    return;
+  }
+
+  // 设置 selectedGroup 为该仓库
+  selectedGroup = groupName;
+
+  // 获取该仓库的分支统计数据，用于判断哪些提交属于哪个分支
+  const groupStats = queryResult.branchStats[groupName];
+  if (!groupStats) {
+    console.error('未找到分组统计数据:', groupName);
+    return;
+  }
+
+  // 构建日期到分支的映射：哪些分支在哪些日期有提交
+  // 因为 commit 对象没有 branch 字段，我们需要通过 branchStats 来推断
+  const dateToBranches = {}; // { "2024-01-15": Set(["main", "dev"]) }
+  for (const branch of Object.keys(groupStats.dailyStats || {})) {
+    const dailyStats = groupStats.dailyStats[branch];
+    for (const dateStr of Object.keys(dailyStats)) {
+      if (!dateToBranches[dateStr]) {
+        dateToBranches[dateStr] = new Set();
+      }
+      dateToBranches[dateStr].add(branch);
+    }
+  }
+
+  // 筛选 commits - 只针对该仓库的分支进行筛选
+  const filteredCommits = queryResult.commits.filter(c => {
+    // 检查是否属于该仓库（通过 project 字段匹配）
+    const isSameGroup = c.project === groupName || c.project.startsWith(groupName + ' ') || c.project.startsWith('[Git] ' + groupName + '/');
+    if (!isSameGroup) return true; // 不属于该仓库的提交保留
+    // 属于该仓库的提交，判断日期对应的分支是否选中
+    const dateStr = c.date.substring(0, 10);
+    const branchesOnDate = dateToBranches[dateStr];
+    if (!branchesOnDate) return true; // 找不到对应日期的分支，保留
+    // 检查是否有任何选中的分支在该日期有提交
+    return selectedBranches.some(b => branchesOnDate.has(b));
+  });
+
+  // 更新统计卡片
+  const stats = calculateGroupStats(groupName, filteredCommits);
+  totalCommitsEl.textContent = stats.totalCommits;
+  totalAddedEl.textContent = stats.totalAdded.toLocaleString();
+  totalDeletedEl.textContent = stats.totalDeleted.toLocaleString();
+  netLinesEl.textContent = (stats.totalAdded - stats.totalDeleted).toLocaleString();
+  overThresholdCountEl.textContent = stats.overThresholdCount;
+  formatCodeCountEl.textContent = stats.formatCodeCount;
+
+  // 更新活跃天数
+  const activeDays = new Set(filteredCommits.map(c => c.date.substring(0, 10)));
+  document.getElementById('activeDays').textContent = activeDays.size;
+
+  // 更新图表
+  const chartData = buildFilteredChartData(groupName, selectedBranches, filteredCommits);
+  renderLineChart(chartData);
+  renderBarChart(chartData);
+
+  // 更新饼图
+  const commitTypeStats = {};
+  for (const commit of filteredCommits) {
+    commitTypeStats[commit.commitType] = (commitTypeStats[commit.commitType] || 0) + 1;
+  }
+  renderPieChart(commitTypeStats);
+
+  // 更新提交表格
+  filteredCommits = filteredCommits;
+  currentPage = 1;
+  renderCommitsTable();
+  renderPagination();
+}
+
+// 计算分组统计
+function calculateGroupStats(groupName, commits) {
+  let totalCommits = 0, totalAdded = 0, totalDeleted = 0;
+  let overThresholdCount = 0, formatCodeCount = 0;
+  const commitTypeStats = {};
+  const dailyStats = {};
+
+  for (const commit of commits) {
+    if (commit.project !== groupName && !commit.project.startsWith(groupName + ' ') && !commit.project.startsWith('[Git] ' + groupName + '/')) continue;
+    totalCommits++;
+    totalAdded += commit.added;
+    totalDeleted += commit.deleted;
+    if (commit.status === 'over') overThresholdCount++;
+    if (commit.status === 'format') formatCodeCount++;
+    commitTypeStats[commit.commitType] = (commitTypeStats[commit.commitType] || 0) + 1;
+
+    const dateStr = commit.date.substring(0, 10);
+    if (!dailyStats[dateStr]) {
+      dailyStats[dateStr] = { added: 0, deleted: 0, commits: 0 };
+    }
+    dailyStats[dateStr].added += commit.added;
+    dailyStats[dateStr].deleted += commit.deleted;
+    dailyStats[dateStr].commits++;
+  }
+
+  return { totalCommits, totalAdded, totalDeleted, overThresholdCount, formatCodeCount, commitTypeStats, dailyStats };
+}
+
+// 构建筛选后的图表数据
+function buildFilteredChartData(groupName, selectedBranches, filteredCommits) {
+  const dailyMap = {};
+  for (const commit of filteredCommits) {
+    if (commit.project !== groupName && !commit.project.startsWith(groupName + ' ') && !commit.project.startsWith('[Git] ' + groupName + '/')) continue;
+    const dateStr = commit.date.substring(0, 10);
+    if (!dailyMap[dateStr]) {
+      dailyMap[dateStr] = { added: 0, deleted: 0, commits: 0 };
+    }
+    dailyMap[dateStr].added += commit.added;
+    dailyMap[dateStr].deleted += commit.deleted;
+    dailyMap[dateStr].commits++;
+  }
+  const allDates = Object.keys(dailyMap).sort();
+  return allDates.map(date => ({
+    date,
+    added: dailyMap[date].added,
+    deleted: dailyMap[date].deleted,
+    commits: dailyMap[date].commits
+  }));
 }
 
 // 更新统计数据
