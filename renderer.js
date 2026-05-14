@@ -74,7 +74,7 @@ const filterBtn = document.getElementById('filterBtn');
 const resetFilterBtn = document.getElementById('resetFilterBtn');
 
 let connectionConfig = {
-  enabledModes: [], // ['svn', 'git']
+  vcs: 'svn', // 'svn' | 'git' 单值
   svn: {
     projects: [],
     username: '',
@@ -271,43 +271,30 @@ function updateAllBranchesFromRepos() {
   allBranches = Array.from(allBranchSet);
 }
 
-// VCS切换（支持多选）
+// VCS切换（单选互斥）
 vcsToggleButtons.forEach(button => {
   button.addEventListener('click', async () => {
     const vcs = button.dataset.vcs;
-    if (connectionConfig.enabledModes.includes(vcs)) {
-      // 已启用则移除（至少保留一个）
-      if (connectionConfig.enabledModes.length > 1) {
-        connectionConfig.enabledModes = connectionConfig.enabledModes.filter(m => m !== vcs);
-        button.classList.remove('active');
-      }
+    if (connectionConfig.vcs === vcs) return; // 已选中则忽略
+
+    connectionConfig.vcs = vcs;
+    vcsToggleButtons.forEach(btn => btn.classList.remove('active'));
+    button.classList.add('active');
+
+    if (vcs === 'svn') {
+      svnAuthConfig.classList.remove('hidden');
+      svnProjectConfig.classList.remove('hidden');
+      gitlabProjectConfig.classList.add('hidden');
     } else {
-      // 未启用则添加
-      connectionConfig.enabledModes.push(vcs);
-      button.classList.add('active');
+      svnAuthConfig.classList.add('hidden');
+      svnProjectConfig.classList.add('hidden');
+      gitlabProjectConfig.classList.remove('hidden');
+      // 自动获取 Git 用户名
+      const result = await window.gitlabAPI.getLocalGitUser();
+      if (result.success) authorInput.value = result.userName;
     }
-    // 更新对应配置区块可见性
-    await updateConfigVisibility();
   });
 });
-
-// 更新配置区块可见性
-async function updateConfigVisibility() {
-  const showSvn = connectionConfig.enabledModes.includes('svn');
-  const showGit = connectionConfig.enabledModes.includes('git');
-
-  if (svnAuthConfig) svnAuthConfig.classList.toggle('hidden', !showSvn);
-  if (svnProjectConfig) svnProjectConfig.classList.toggle('hidden', !showSvn);
-  if (gitlabProjectConfig) gitlabProjectConfig.classList.toggle('hidden', !showGit);
-
-  // 自动获取 Git 用户名（当启用 Git 时且未启用 SVN）
-  if (showGit && !showSvn) {
-    const result = await window.gitlabAPI.getLocalGitUser();
-    if (result.success) {
-      authorInput.value = result.userName;
-    }
-  }
-}
 
 // Git 多仓库列表（已移除旧的单仓库模式事件监听）
 let queryResult = null;
@@ -631,7 +618,7 @@ document.querySelector('.project-row .btn-remove').addEventListener('click', (e)
 // 获取所有项目配置
 function getProjects() {
   const projects = [];
-  if (connectionConfig.enabledModes.includes('svn')) {
+  if (connectionConfig.vcs === 'svn') {
     const rows = projectList.querySelectorAll('.project-row');
     rows.forEach(row => {
       const name = row.querySelector('.project-name').value.trim();
@@ -655,11 +642,11 @@ loginBtn.addEventListener('click', async () => {
   loginBtn.disabled = true;
 
   try {
-    const enabledModes = connectionConfig.enabledModes;
+    const vcs = connectionConfig.vcs;
     const results = {};
 
     // SVN 登录验证
-    if (enabledModes.includes('svn')) {
+    if (vcs === 'svn') {
       const projects = getProjects();
       const username = usernameInput.value.trim();
       const password = passwordInput.value;
@@ -693,7 +680,7 @@ loginBtn.addEventListener('click', async () => {
     }
 
     // Git 登录验证（多仓库模式）
-    if (enabledModes.includes('git')) {
+    if (vcs === 'git') {
       // 检查是否至少配置了一个有效的 Git 仓库
       const validRepos = gitRepos.filter(r => {
         if (r.mode === 'local') return r.path && r.branches.length > 0;
@@ -720,14 +707,13 @@ loginBtn.addEventListener('click', async () => {
       results.git = { success: true };
     }
 
-    // 检查是否所有启用的模式都成功
-    const allSuccess = enabledModes.every(mode => results[mode] && results[mode].success);
-    if (allSuccess && enabledModes.length > 0) {
+    // 检查是否成功
+    if (results[vcs] && results[vcs].success) {
       setTimeout(async () => {
         loginCard.classList.add('hidden');
         statsCard.classList.remove('hidden');
         // SVN 模式：隐藏分支选择，填充用户名
-        if (enabledModes.includes('svn') && !enabledModes.includes('git')) {
+        if (vcs === 'svn') {
           branchGroup.classList.add('hidden');
           authorInput.value = connectionConfig.username;
         } else {
@@ -818,62 +804,32 @@ queryBtn.addEventListener('click', async () => {
   try {
     let result;
 
-    if (connectionConfig.enabledModes.length === 1) {
-      // 单模式：使用原有 API（兼容原有逻辑）
-      if (connectionConfig.enabledModes[0] === 'svn') {
-        // SVN 查询
-        result = await window.svnAPI.getStats(
-          connectionConfig.svn.projects,
-          connectionConfig.svn.username,
-          connectionConfig.svn.password,
-          author,
-          year,
-          month,
-          connectionConfig.threshold,
-          connectionConfig.formatThreshold,
-          startDateStr,
-          endDateStr
-        );
-      } else {
-        // Git 模式（使用多仓库配置）
-        result = await window.multiRepoAPI.getStats({
-          author,
-          year,
-          month,
-          threshold: connectionConfig.threshold,
-          formatThreshold: connectionConfig.formatThreshold,
-          startDate: startDateStr,
-          endDate: endDateStr,
-          git: connectionConfig.git
-        });
-      }
+    if (connectionConfig.vcs === 'svn') {
+      // SVN 查询
+      result = await window.svnAPI.getStats(
+        connectionConfig.svn.projects,
+        connectionConfig.svn.username,
+        connectionConfig.svn.password,
+        author,
+        year,
+        month,
+        connectionConfig.threshold,
+        connectionConfig.formatThreshold,
+        startDateStr,
+        endDateStr
+      );
     } else {
-      // 多模式：使用 multi-stats
-      const config = {
+      // Git 模式（使用多仓库配置）
+      result = await window.multiRepoAPI.getStats({
         author,
         year,
         month,
         threshold: connectionConfig.threshold,
         formatThreshold: connectionConfig.formatThreshold,
         startDate: startDateStr,
-        endDate: endDateStr
-      };
-
-      // SVN 配置
-      if (connectionConfig.enabledModes.includes('svn')) {
-        config.svn = {
-          projects: connectionConfig.svn.projects,
-          username: connectionConfig.svn.username,
-          password: connectionConfig.svn.password
-        };
-      }
-
-      // Git 配置（使用登录时配置好的多仓库设置）
-      if (connectionConfig.enabledModes.includes('git')) {
-        config.git = connectionConfig.git;
-      }
-
-      result = await window.multiRepoAPI.getStats(config);
+        endDate: endDateStr,
+        git: connectionConfig.git
+      });
     }
 
     if (result.success) {
@@ -921,20 +877,11 @@ function updateCharts() {
     commitTypeStats = queryResult.commitTypeStats;
   } else {
     // 从 branchStats/projectStats 中提取选中分组的数据
-    const isGit = connectionConfig.enabledModes.includes('git');
-    const isMultiMode = connectionConfig.enabledModes.length > 1;
+    const isGit = connectionConfig.vcs === 'git';
     let statsSource;
     let groupStats;
 
-    if (isMultiMode && selectedGroup !== 'all') {
-      // 多模式：先检查 branchStats（Git 分支），再检查 projectStats（SVN 项目或多源分组）
-      if (isGit && queryResult.branchStats && queryResult.branchStats[selectedGroup]) {
-        statsSource = queryResult.branchStats;
-      } else if (queryResult.projectStats && queryResult.projectStats[selectedGroup]) {
-        statsSource = queryResult.projectStats;
-      }
-      groupStats = statsSource ? statsSource[selectedGroup] : null;
-    } else {
+    if (selectedGroup !== 'all') {
       // 单模式：使用原有逻辑
       statsSource = isGit ? queryResult.branchStats : queryResult.projectStats;
       groupStats = statsSource ? statsSource[selectedGroup] : null;
