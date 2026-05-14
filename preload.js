@@ -69,3 +69,8 @@ contextBridge.exposeInMainWorld('codeReviewAPI', {
 contextBridge.exposeInMainWorld('multiRepoAPI', {
   getStats: (config) => ipcRenderer.invoke('multi-stats', config)
 });
+
+// Git 多仓库多分支查询 API (git-multi-stats)
+contextBridge.exposeInMainWorld('gitMultiRepoAPI', {
+  getStats: (config) => ipcRenderer.invoke('git-multi-stats', config)
+});
