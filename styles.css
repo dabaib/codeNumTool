@@ -677,6 +677,17 @@ h1 {
   color: #856404;
 }
 
+/* 来源标签 */
+.source-tag {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 11px;
+  margin-right: 4px;
+}
+.source-tag.svn { background: #d4edda; color: #155724; }
+.source-tag.git { background: #cce5ff; color: #004085; }
+
 /* 提交信息列 */
 .commit-message {
   max-width: 300px;

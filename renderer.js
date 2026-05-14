@@ -1167,6 +1167,11 @@ function renderCommitsTable() {
 
     const isChecked = selectedCommitIndices.has(globalIndex) ? 'checked' : '';
 
+    // 来源标签
+    const sourceTag = commit.source === 'svn'
+      ? '<span class="source-tag svn">[SVN]</span>'
+      : '<span class="source-tag git">[Git]</span>';
+
     html += `
       <tr>
         <td class="checkbox-col"><input type="checkbox" class="commit-checkbox" data-index="${globalIndex}" ${isChecked}></td>
@@ -1174,7 +1179,7 @@ function renderCommitsTable() {
         <td>r${commit.revision}</td>
         <td>${dateStr}</td>
         <td><span class="commit-type ${typeClass}">${commit.commitType}</span></td>
-        <td class="commit-message" title="${escapeHtml(commit.message)}">${normTag}${dupTag}${escapeHtml(commit.message)}</td>
+        <td class="commit-message" title="${escapeHtml(commit.message)}">${sourceTag}${normTag}${dupTag}${escapeHtml(commit.message)}</td>
         <td class="num added">+${commit.added}</td>
         <td class="num deleted">-${commit.deleted}</td>
         <td class="num">${commit.net >= 0 ? '+' : ''}${commit.net}</td>
