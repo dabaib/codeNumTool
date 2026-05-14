@@ -743,61 +743,110 @@ queryBtn.addEventListener('click', async () => {
     month = d.getMonth() + 1;
   }
 
-  const branches = Array.from(branchInput.selectedOptions).map(opt => opt.value).filter(Boolean);
-
   queryBtn.disabled = true;
   showStatus(queryStatus, '正在查询统计数据，请稍候...', 'loading');
 
   try {
     let result;
 
-    if (connectionConfig.vcs === 'svn') {
-      // SVN 查询
-      result = await window.svnAPI.getStats(
-        connectionConfig.projects,
-        connectionConfig.username,
-        connectionConfig.password,
+    if (connectionConfig.enabledModes.length === 1) {
+      // 单模式：使用原有 API（兼容原有逻辑）
+      if (connectionConfig.enabledModes[0] === 'svn') {
+        // SVN 查询
+        result = await window.svnAPI.getStats(
+          connectionConfig.svn.projects,
+          connectionConfig.svn.username,
+          connectionConfig.svn.password,
+          author,
+          year,
+          month,
+          connectionConfig.threshold,
+          connectionConfig.formatThreshold,
+          startDateStr,
+          endDateStr
+        );
+      } else {
+        // Git 单仓库模式（本地或 SSH）
+        const gitlabMode = connectionConfig.gitlabMode;
+        const repoBranches = Array.from(selectedBranchesSet);
+
+        if (gitlabMode === 'local') {
+          result = await window.gitlabAPI.localGetStats({
+            repoPath: connectionConfig.localRepoPath,
+            repoName: connectionConfig.localRepoName,
+            author,
+            branches: repoBranches.length > 0 ? repoBranches : ['main', 'master'],
+            year,
+            month,
+            threshold: connectionConfig.threshold,
+            formatThreshold: connectionConfig.formatThreshold,
+            startDate: startDateStr,
+            endDate: endDateStr
+          });
+        } else {
+          // SSH 模式
+          result = await window.gitlabAPI.sshGetStats({
+            repoUrl: connectionConfig.sshRepoUrl,
+            repoName: connectionConfig.sshRepoName,
+            author,
+            branches: repoBranches.length > 0 ? repoBranches : ['main', 'master'],
+            year,
+            month,
+            threshold: connectionConfig.threshold,
+            formatThreshold: connectionConfig.formatThreshold,
+            startDate: startDateStr,
+            endDate: endDateStr
+          });
+        }
+      }
+    } else {
+      // 多模式：使用 multi-stats
+      const config = {
         author,
         year,
         month,
-        connectionConfig.threshold,
-        connectionConfig.formatThreshold,
-        startDateStr,
-        endDateStr
-      );
+        threshold: connectionConfig.threshold,
+        formatThreshold: connectionConfig.formatThreshold,
+        startDate: startDateStr,
+        endDate: endDateStr
+      };
 
-    } else { // GitLab 模式
-      const gitlabMode = connectionConfig.gitlabMode;
-
-      if (gitlabMode === 'local') {
-        // 本地扫描模式查询
-        result = await window.gitlabAPI.localGetStats({
-          repoPath: connectionConfig.localRepoPath,
-          repoName: connectionConfig.localRepoName,
-          author,
-          branches: branches.length > 0 ? branches : ['main', 'master'],
-          year,
-          month,
-          threshold: connectionConfig.threshold,
-          formatThreshold: connectionConfig.formatThreshold,
-          startDate: startDateStr,
-          endDate: endDateStr
-        });
-      } else {
-        // SSH 远程模式查询
-        result = await window.gitlabAPI.sshGetStats({
-          repoUrl: connectionConfig.sshRepoUrl,
-          repoName: connectionConfig.sshRepoName,
-          author,
-          branches: branches.length > 0 ? branches : ['main', 'master'],
-          year,
-          month,
-          threshold: connectionConfig.threshold,
-          formatThreshold: connectionConfig.formatThreshold,
-          startDate: startDateStr,
-          endDate: endDateStr
-        });
+      // SVN 配置
+      if (connectionConfig.enabledModes.includes('svn')) {
+        config.svn = {
+          projects: connectionConfig.svn.projects,
+          username: connectionConfig.svn.username,
+          password: connectionConfig.svn.password
+        };
       }
+
+      // Git 配置（从单仓库配置构造 repos 数组）
+      if (connectionConfig.enabledModes.includes('git')) {
+        const gitlabMode = connectionConfig.gitlabMode;
+        const repoBranches = Array.from(selectedBranchesSet);
+
+        if (gitlabMode === 'local') {
+          config.git = {
+            repos: [{
+              type: 'local',
+              repoName: connectionConfig.localRepoName || 'Local Repo',
+              repoPath: connectionConfig.localRepoPath,
+              branches: repoBranches.length > 0 ? repoBranches : ['main', 'master']
+            }]
+          };
+        } else {
+          config.git = {
+            repos: [{
+              type: 'ssh',
+              repoName: connectionConfig.sshRepoName || 'SSH Repo',
+              repoUrl: connectionConfig.sshRepoUrl,
+              branches: repoBranches.length > 0 ? repoBranches : ['main', 'master']
+            }]
+          };
+        }
+      }
+
+      result = await window.multiRepoAPI.getStats(config);
     }
 
     if (result.success) {
@@ -845,9 +894,24 @@ function updateCharts() {
     commitTypeStats = queryResult.commitTypeStats;
   } else {
     // 从 branchStats/projectStats 中提取选中分组的数据
-    const isGit = connectionConfig.vcs === 'git';
-    const statsSource = isGit ? queryResult.branchStats : queryResult.projectStats;
-    const groupStats = statsSource[selectedGroup];
+    const isGit = connectionConfig.enabledModes.includes('git');
+    const isMultiMode = connectionConfig.enabledModes.length > 1;
+    let statsSource;
+    let groupStats;
+
+    if (isMultiMode && selectedGroup !== 'all') {
+      // 多模式：先检查 branchStats（Git 分支），再检查 projectStats（SVN 项目或多源分组）
+      if (isGit && queryResult.branchStats && queryResult.branchStats[selectedGroup]) {
+        statsSource = queryResult.branchStats;
+      } else if (queryResult.projectStats && queryResult.projectStats[selectedGroup]) {
+        statsSource = queryResult.projectStats;
+      }
+      groupStats = statsSource ? statsSource[selectedGroup] : null;
+    } else {
+      // 单模式：使用原有逻辑
+      statsSource = isGit ? queryResult.branchStats : queryResult.projectStats;
+      groupStats = statsSource ? statsSource[selectedGroup] : null;
+    }
 
     if (!groupStats) return;
 
