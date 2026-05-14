@@ -975,18 +975,31 @@ function renderGroupingTabs() {
   const isGit = connectionConfig.vcs === 'git';
   const statsSource = isGit ? queryResult.branchStats : queryResult.projectStats;
   const groupNames = Object.keys(statsSource || {});
-  const allText = isGit ? '全部分支' : '全部项目';
+  const allText = isGit ? '全部仓库' : '全部项目';
 
   let html = `<button class="project-tab ${selectedGroup === 'all' ? 'active' : ''}" data-group="all">${allText}</button>`;
 
   groupNames.forEach(name => {
-    html += `<button class="project-tab ${selectedGroup === name ? 'active' : ''}" data-group="${name}">${name}</button>`;
+    const isGitRepo = isGit && queryResult.branchStats && queryResult.branchStats[name];
+    if (isGit && isGitRepo) {
+      // Git 仓库可展开
+      html += `
+        <button class="project-tab expandable" data-group="${name}">
+          ${name} <span class="expand-icon">▼</span>
+        </button>
+        <div class="branch-filter" data-for="${name}" style="display:none;">
+          <div class="branch-checkboxes">${renderBranchCheckboxes(name)}</div>
+        </div>
+      `;
+    } else {
+      html += `<button class="project-tab ${selectedGroup === name ? 'active' : ''}" data-group="${name}">${name}</button>`;
+    }
   });
 
   projectTabs.innerHTML = html;
 
-  // 绑定点击事件
-  projectTabs.querySelectorAll('.project-tab').forEach(tab => {
+  // 绑定点击事件（普通标签）
+  projectTabs.querySelectorAll('.project-tab:not(.expandable)').forEach(tab => {
     tab.addEventListener('click', () => {
       selectedGroup = tab.dataset.group;
       projectTabs.querySelectorAll('.project-tab').forEach(t => t.classList.remove('active'));
@@ -996,6 +1009,33 @@ function renderGroupingTabs() {
       applyFilter();
     });
   });
+
+  // 绑定展开事件
+  projectTabs.querySelectorAll('.project-tab.expandable').forEach(tab => {
+    tab.addEventListener('click', () => {
+      const groupName = tab.dataset.group;
+      const filterDiv = projectTabs.querySelector(`.branch-filter[data-for="${groupName}"]`);
+      const icon = tab.querySelector('.expand-icon');
+      if (filterDiv.style.display === 'none') {
+        filterDiv.style.display = 'block';
+        icon.textContent = '▲';
+      } else {
+        filterDiv.style.display = 'none';
+        icon.textContent = '▼';
+      }
+    });
+  });
+}
+
+function renderBranchCheckboxes(groupName) {
+  const groupStats = queryResult.branchStats[groupName];
+  if (!groupStats || !groupStats.dailyStats) return '';
+  const branches = Object.keys(groupStats.dailyStats);
+  return branches.map(branch => `
+    <label class="branch-checkbox-label">
+      <input type="checkbox" value="${branch}" checked> ${branch}
+    </label>
+  `).join('');
 }
 
 // 更新统计数据
