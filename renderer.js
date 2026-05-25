@@ -138,11 +138,9 @@ function renderGitRepoCards() {
         <button type="button" class="btn-remove" onclick="removeGitRepo(${repo.id})">×</button>
       </div>
       <div class="repo-body">
-        <div class="form-group">
+        <div class="form-group repo-name-mode-row">
           <input class="repo-name-input" placeholder="仓库名称" value="${repo.name}"
             onchange="updateGitRepoName(${repo.id}, this.value)">
-        </div>
-        <div class="form-group">
           <select class="repo-mode-select" onchange="updateGitRepoMode(${repo.id}, this.value)">
             <option value="local" ${repo.mode === 'local' ? 'selected' : ''}>本地仓库</option>
             <option value="ssh" ${repo.mode === 'ssh' ? 'selected' : ''}>SSH 远程</option>
@@ -271,21 +269,49 @@ function updateAllBranchesFromRepos() {
   allBranches = Array.from(allBranchSet);
 }
 
+// 确保 repo.selectedBranches 是 Set
+function ensureSelectedBranchesSet(repo) {
+  if (!repo.selectedBranches) {
+    repo.selectedBranches = new Set();
+  } else if (Array.isArray(repo.selectedBranches)) {
+    repo.selectedBranches = new Set(repo.selectedBranches);
+  } else if (!(repo.selectedBranches instanceof Set)) {
+    // 如果是其他类型（对象等），转换为 Set
+    repo.selectedBranches = new Set();
+  }
+  return repo;
+}
+
 // 渲染多仓库分支选择器（登录后显示在 statsCard 中）
 function renderGitRepoBranchesSelect() {
   const container = document.getElementById('gitRepoBranchesSelect');
   if (!container) return;
 
-  // 只有 Git 模式且有有效仓库时才显示
-  if (connectionConfig.vcs !== 'git' || gitRepos.length === 0) {
+  // 确保所有仓库的 selectedBranches 是 Set
+  gitRepos.forEach(repo => ensureSelectedBranchesSet(repo));
+
+  // 只有 Git 模式（包含混合模式）且有有效仓库时才显示
+  if ((connectionConfig.vcs !== 'git' && connectionConfig.vcs !== 'mixed') || gitRepos.length === 0) {
     container.classList.add('hidden');
     return;
   }
 
   container.classList.remove('hidden');
-  container.innerHTML = gitRepos.map((repo, idx) => `
-    <div class="git-repo-branch-item" data-repo-id="${repo.id}">
-      <div class="branch-repo-name">${repo.name || '仓库 ' + (idx + 1)}</div>
+  container.innerHTML = gitRepos.map((repo, idx) => {
+    const repoLabel = repo.name || `仓库 ${idx + 1}`;
+    const repoPathDisplay = repo.mode === 'local' ? repo.path : repo.url;
+    const repoModeLabel = repo.mode === 'local' ? '本地' : 'SSH';
+
+    // 确保这个 repo 的 selectedBranches 是 Set
+    ensureSelectedBranchesSet(repo);
+
+    return `
+    <div class="git-repo-branch-row" data-repo-id="${repo.id}">
+      <div class="repo-branch-header">
+        <span class="repo-branch-name">📦 ${repoLabel}</span>
+        <span class="repo-branch-mode">(${repoModeLabel})</span>
+        <span class="repo-branch-path" title="${escapeHtml(repoPathDisplay)}">${escapeHtml(repoPathDisplay)}</span>
+      </div>
       <div class="repo-branches-select">
         ${repo.branches.map(branch => `
           <label class="branch-checkbox-label">
@@ -295,15 +321,17 @@ function renderGitRepoBranchesSelect() {
             <span>${branch}</span>
           </label>
         `).join('')}
+        ${repo.branches.length === 0 ? '<span class="no-branches">暂无分支，请先配置仓库</span>' : ''}
       </div>
     </div>
-  `).join('');
+  `}).join('');
 }
 
 // 更新某仓库选中的分支
 function updateRepoSelectedBranch(repoId, branch, checked) {
   const repo = gitRepos.find(r => r.id === repoId);
   if (!repo) return;
+  ensureSelectedBranchesSet(repo);
   if (checked) {
     repo.selectedBranches.add(branch);
   } else {
@@ -321,13 +349,52 @@ function updateRepoSelectedBranch(repoId, branch, checked) {
   }
 }
 
+// 渲染 SVN 项目选择器（SVN 和混合模式下显示）
+function renderSvnProjectSelect() {
+  const container = document.getElementById('svnProjectSelect');
+  if (!container) return;
+
+  // 只有 SVN 模式或混合模式且有项目时才显示
+  if ((connectionConfig.vcs !== 'svn' && connectionConfig.vcs !== 'mixed') ||
+      !connectionConfig.svn.projects || connectionConfig.svn.projects.length === 0) {
+    container.classList.add('hidden');
+    return;
+  }
+
+  container.classList.remove('hidden');
+  // SVN 项目默认全部选中
+  container.innerHTML = connectionConfig.svn.projects.map(project => `
+    <label class="branch-checkbox-label">
+      <input type="checkbox" value="${project.name}"
+        ${project.selected !== false ? 'checked' : ''}
+        onchange="updateSvnSelectedProject('${project.name}', this.checked)">
+      <span>${project.name}</span>
+    </label>
+  `).join('');
+}
+
+// 更新 SVN 项目选中状态
+function updateSvnSelectedProject(projectName, checked) {
+  const project = connectionConfig.svn.projects.find(p => p.name === projectName);
+  if (project) {
+    project.selected = checked;
+  }
+}
+
+// 获取选中的 SVN 项目列表
+function getSelectedSvnProjects() {
+  if (!connectionConfig.svn.projects) return [];
+  return connectionConfig.svn.projects.filter(p => p.selected !== false);
+}
+
 // VCS切换（单选互斥）
 vcsToggleButtons.forEach(button => {
   button.addEventListener('click', async () => {
     const vcs = button.dataset.vcs;
-    if (connectionConfig.vcs === vcs) return; // 已选中则忽略
 
+    // 更新状态
     connectionConfig.vcs = vcs;
+    vcsTypeInput.value = vcs;
     vcsToggleButtons.forEach(btn => btn.classList.remove('active'));
     button.classList.add('active');
 
@@ -335,9 +402,17 @@ vcsToggleButtons.forEach(button => {
       svnAuthConfig.classList.remove('hidden');
       svnProjectConfig.classList.remove('hidden');
       gitlabProjectConfig.classList.add('hidden');
-    } else {
+    } else if (vcs === 'git') {
       svnAuthConfig.classList.add('hidden');
       svnProjectConfig.classList.add('hidden');
+      gitlabProjectConfig.classList.remove('hidden');
+      // 自动获取 Git 用户名
+      const result = await window.gitlabAPI.getLocalGitUser();
+      if (result.success) authorInput.value = result.userName;
+    } else if (vcs === 'mixed') {
+      // 混合模式：显示 SVN 和 Git 配置
+      svnAuthConfig.classList.remove('hidden');
+      svnProjectConfig.classList.remove('hidden');
       gitlabProjectConfig.classList.remove('hidden');
       // 自动获取 Git 用户名
       const result = await window.gitlabAPI.getLocalGitUser();
@@ -345,6 +420,69 @@ vcsToggleButtons.forEach(button => {
     }
   });
 });
+
+// 加载缓存的配置
+function loadCachedConfig() {
+  const cachedConfig = localStorage.getItem('connectionConfig');
+  if (cachedConfig) {
+    try {
+      const config = JSON.parse(cachedConfig);
+      // 合并到 connectionConfig
+      Object.assign(connectionConfig, config);
+      // 设置缓存勾选状态
+      const cacheCheckbox = document.getElementById('cacheConfig');
+      if (cacheCheckbox) cacheCheckbox.checked = true;
+
+      // 加载 gitRepos
+      const cachedGitRepos = localStorage.getItem('gitRepos');
+      if (cachedGitRepos) {
+        try {
+          gitRepos = JSON.parse(cachedGitRepos);
+          // 恢复 selectedBranches 为 Set
+          gitRepos.forEach(repo => {
+            if (repo.selectedBranches && Array.isArray(repo.selectedBranches)) {
+              repo.selectedBranches = new Set(repo.selectedBranches);
+            }
+          });
+        } catch (e) {
+          console.error('加载缓存 Git 仓库失败:', e);
+        }
+      }
+      return true;
+    } catch (e) {
+      console.error('加载缓存配置失败:', e);
+    }
+  }
+  return false;
+}
+
+// 初始化：根据默认 vcs 值显示对应配置
+function initVcsDisplay() {
+  const vcs = connectionConfig.vcs;
+  if (vcs === 'svn') {
+    vcsToggleButtons.forEach(btn => btn.classList.remove('active'));
+    document.querySelector('.vcs-btn[data-vcs="svn"]').classList.add('active');
+    svnAuthConfig.classList.remove('hidden');
+    svnProjectConfig.classList.remove('hidden');
+    gitlabProjectConfig.classList.add('hidden');
+  } else if (vcs === 'git') {
+    vcsToggleButtons.forEach(btn => btn.classList.remove('active'));
+    document.querySelector('.vcs-btn[data-vcs="git"]').classList.add('active');
+    svnAuthConfig.classList.add('hidden');
+    svnProjectConfig.classList.add('hidden');
+    gitlabProjectConfig.classList.remove('hidden');
+  } else if (vcs === 'mixed') {
+    vcsToggleButtons.forEach(btn => btn.classList.remove('active'));
+    document.querySelector('.vcs-btn[data-vcs="mixed"]').classList.add('active');
+    svnAuthConfig.classList.remove('hidden');
+    svnProjectConfig.classList.remove('hidden');
+    gitlabProjectConfig.classList.remove('hidden');
+  }
+}
+
+// 页面加载时加载缓存配置
+loadCachedConfig();
+initVcsDisplay();
 
 // Git 多仓库列表（已移除旧的单仓库模式事件监听）
 let queryResult = null;
@@ -668,7 +806,7 @@ document.querySelector('.project-row .btn-remove').addEventListener('click', (e)
 // 获取所有项目配置
 function getProjects() {
   const projects = [];
-  if (connectionConfig.vcs === 'svn') {
+  if (connectionConfig.vcs === 'svn' || connectionConfig.vcs === 'mixed') {
     const rows = projectList.querySelectorAll('.project-row');
     rows.forEach(row => {
       const name = row.querySelector('.project-name').value.trim();
@@ -719,7 +857,7 @@ loginBtn.addEventListener('click', async () => {
       const result = await window.svnAPI.login(projects, username, password);
       if (result.success) {
         const successProjects = result.results.filter(r => r.success);
-        connectionConfig.svn.projects = successProjects.map(r => ({ name: r.name, url: r.url }));
+        connectionConfig.svn.projects = successProjects.map(r => ({ name: r.name, url: r.url, selected: true }));
         connectionConfig.svn.username = username;
         showStatus(loginStatus, result.message, 'success');
         results.svn = { success: true, message: result.message };
@@ -730,7 +868,7 @@ loginBtn.addEventListener('click', async () => {
     }
 
     // Git 登录验证（多仓库模式）
-    if (vcs === 'git') {
+    if (vcs === 'git' || vcs === 'mixed') {
       // 检查是否至少配置了一个有效的 Git 仓库
       const validRepos = gitRepos.filter(r => {
         if (r.mode === 'local') return r.path && r.branches.length > 0;
@@ -738,39 +876,169 @@ loginBtn.addEventListener('click', async () => {
         return false;
       });
 
-      if (validRepos.length === 0) {
+      if (vcs === 'mixed' && validRepos.length === 0) {
+        showStatus(loginStatus, '混合模式需要至少配置一个有效的 Git 仓库', 'error');
+        loginBtn.disabled = false;
+        return;
+      }
+
+      if (vcs === 'git' && validRepos.length === 0) {
         showStatus(loginStatus, '请至少配置一个有效的 Git 仓库（本地需选择目录并加载分支，SSH 需测试连接成功）', 'error');
         loginBtn.disabled = false;
         return;
       }
 
       // 更新 connectionConfig.git.repos
+      // 如果 selectedBranches 为空，保留空数组（不在这里默认选中分支）
       connectionConfig.git.repos = validRepos.map(r => ({
         type: r.mode,
         repoName: r.name || (r.mode === 'local' ? 'Local Repo' : 'SSH Repo'),
         repoPath: r.path,
         repoUrl: r.url,
-        branches: Array.from(r.selectedBranches).length > 0 ? Array.from(r.selectedBranches) : ['main', 'master']
+        branches: Array.from(r.selectedBranches)
       }));
 
-      showStatus(loginStatus, `已就绪 ${validRepos.length} 个 Git 仓库`, 'success');
+      if (vcs === 'git') {
+        showStatus(loginStatus, `已就绪 ${validRepos.length} 个 Git 仓库`, 'success');
+      }
+      if (vcs === 'mixed') {
+        showStatus(loginStatus, `SVN 已就绪，Git 已就绪 ${validRepos.length} 个仓库`, 'success');
+      }
       results.git = { success: true };
     }
 
+    // 混合模式 SVN 验证
+    if (vcs === 'mixed') {
+      const projects = getProjects();
+      const username = usernameInput.value.trim();
+      const password = passwordInput.value;
+
+      if (projects.length === 0) {
+        showStatus(loginStatus, '混合模式需要至少配置一个 SVN 项目', 'error');
+        loginBtn.disabled = false;
+        return;
+      }
+      if (!username || !password) {
+        showStatus(loginStatus, '请填写 SVN 用户名和密码', 'error');
+        loginBtn.disabled = false;
+        return;
+      }
+
+      showStatus(loginStatus, '正在连接 SVN 服务器...', 'loading');
+      connectionConfig.username = username;
+      connectionConfig.password = password;
+      connectionConfig.svn = connectionConfig.svn || {};
+      connectionConfig.svn.username = username;
+      connectionConfig.svn.password = password;
+
+      const result = await window.svnAPI.login(projects, username, password);
+      if (result.success) {
+        const successProjects = result.results.filter(r => r.success);
+        connectionConfig.svn.projects = successProjects.map(r => ({ name: r.name, url: r.url, selected: true }));
+        showStatus(loginStatus, result.message, 'success');
+        results.svn = { success: true, message: result.message };
+      } else {
+        showStatus(loginStatus, `SVN 连接失败: ${result.error || '所有项目连接失败'}`, 'error');
+        results.svn = { success: false, error: result.error };
+      }
+    }
+
     // 检查是否成功
-    if (results[vcs] && results[vcs].success) {
+    const mixedSuccess = vcs === 'mixed' && results.svn && results.svn.success && results.git && results.git.success;
+    const singleSuccess = vcs !== 'mixed' && results[vcs] && results[vcs].success;
+
+    if (singleSuccess || mixedSuccess) {
+      // 混合模式显示汇总信息
+      if (vcs === 'mixed') {
+        const svnCount = connectionConfig.svn.projects ? connectionConfig.svn.projects.length : 0;
+        const gitCount = connectionConfig.git.repos ? connectionConfig.git.repos.length : 0;
+        showStatus(loginStatus, `SVN 连接成功，Git 连接成功，共计 ${svnCount + gitCount} 个项目`, 'success');
+      }
+
+      // 保存配置到 localStorage
+      if (document.getElementById('cacheConfig').checked) {
+        localStorage.setItem('connectionConfig', JSON.stringify(connectionConfig));
+        localStorage.setItem('gitRepos', JSON.stringify(gitRepos));
+      } else {
+        localStorage.removeItem('connectionConfig');
+        localStorage.removeItem('gitRepos');
+      }
+
       setTimeout(async () => {
         loginCard.classList.add('hidden');
         statsCard.classList.remove('hidden');
-        // SVN 模式：隐藏分支选择，填充用户名
+        // SVN 模式：显示 SVN 查询区块和项目选择器
         if (vcs === 'svn') {
-          branchGroup.classList.add('hidden');
+          if (branchGroup) branchGroup.classList.add('hidden');
           authorInput.value = connectionConfig.username;
-        } else {
+          // SVN 区块显示
+          document.getElementById('svnAuthorGroup').classList.remove('hidden');
+          // SVN 提交者输入显示
+          document.getElementById('svnAuthorInputs').classList.remove('hidden');
+          // Git 区块隐藏
+          document.getElementById('gitAuthorGroup').classList.add('hidden');
+          document.getElementById('gitAuthorRow').classList.add('hidden');
+          document.getElementById('gitSectionHeaderRow').classList.add('hidden');
+          document.getElementById('gitAuthorGroup').querySelector('label').textContent = '提交者账号:';
+          authorInput.placeholder = 'SVN提交者用户名';
+          // 隐藏 Git 多仓库分支选择器
+          const gitRepoBranchesEl = document.getElementById('gitRepoBranchesSelect');
+          if (gitRepoBranchesEl) gitRepoBranchesEl.classList.add('hidden');
+          // 隐藏 SVN 项目选择器（结果页项目标签会展示每个项目）
+          const svnProjectSelectEl = document.getElementById('svnProjectSelect');
+          if (svnProjectSelectEl) svnProjectSelectEl.classList.add('hidden');
+        } else if (vcs === 'git') {
           // Git 模式：显示分支选择，获取 Git 用户名
-          branchGroup.classList.add('hidden'); // 隐藏旧的全局分支选择器
+          // SVN 区块隐藏
+          const svnAuthorGroupEl = document.getElementById('svnAuthorGroup');
+          const gitAuthorGroupEl = document.getElementById('gitAuthorGroup');
+          const gitAuthorRowEl = document.getElementById('gitAuthorRow');
+          const gitSectionHeaderRowEl = document.getElementById('gitSectionHeaderRow');
+
+          if (svnAuthorGroupEl) svnAuthorGroupEl.classList.add('hidden');
+          // Git 区块显示
+          if (gitAuthorGroupEl) gitAuthorGroupEl.classList.remove('hidden');
+          if (gitAuthorRowEl) gitAuthorRowEl.classList.remove('hidden');
+          if (gitSectionHeaderRowEl) gitSectionHeaderRowEl.classList.remove('hidden');
+
+          if (gitAuthorGroupEl) {
+            const label = gitAuthorGroupEl.querySelector('label');
+            if (label) label.textContent = '提交者账号:';
+          }
+          authorInput.placeholder = 'Git提交者用户名';
           // 显示多仓库分支选择器
           renderGitRepoBranchesSelect();
+          try {
+            const gitUserResult = await window.gitlabAPI.getLocalGitUser();
+            if (gitUserResult.success && gitUserResult.userName) {
+              authorInput.value = gitUserResult.userName;
+            }
+          } catch (e) {
+            console.error('获取 Git 用户名失败:', e);
+          }
+        } else if (vcs === 'mixed') {
+          // 混合模式：显示 SVN 和 Git 两个区块
+          if (branchGroup) branchGroup.classList.add('hidden');
+          // SVN 区块显示
+          document.getElementById('svnAuthorGroup').classList.remove('hidden');
+          document.getElementById('svnAuthorInputs').classList.remove('hidden');
+          document.getElementById('svnAuthor').value = connectionConfig.svn.username || '';
+          // Git 区块显示
+          document.getElementById('gitAuthorRow').classList.remove('hidden');
+          document.getElementById('gitAuthorGroup').classList.remove('hidden');
+          document.getElementById('gitSectionHeaderRow').classList.remove('hidden');
+          document.getElementById('gitAuthorGroup').querySelector('label').textContent = 'Git 提交者:';
+          authorInput.placeholder = 'Git提交者用户名';
+          // 隐藏 SVN 项目选择器（结果页项目标签会展示每个项目）
+          const svnProjectSelectEl = document.getElementById('svnProjectSelect');
+          if (svnProjectSelectEl) svnProjectSelectEl.classList.add('hidden');
+          // 显示 Git 多仓库分支选择器（默认不勾选）
+          gitRepos.forEach(repo => {
+            ensureSelectedBranchesSet(repo);
+            repo.selectedBranches.clear();
+          });
+          renderGitRepoBranchesSelect();
+          // 获取 Git 用户名
           try {
             const gitUserResult = await window.gitlabAPI.getLocalGitUser();
             if (gitUserResult.success && gitUserResult.userName) {
@@ -807,9 +1075,22 @@ queryBtn.addEventListener('click', async () => {
   let endDateStr = '';
   const mode = queryModeInput.value;
 
-  if (!author) {
-    showStatus(queryStatus, '请填写提交者账号', 'error');
-    return;
+  // 混合模式需要验证两个作者输入
+  if (connectionConfig.vcs === 'mixed') {
+    const svnAuthor = document.getElementById('svnAuthor').value.trim();
+    if (!svnAuthor) {
+      showStatus(queryStatus, '请填写 SVN 提交者账号', 'error');
+      return;
+    }
+    if (!author) {
+      showStatus(queryStatus, '请填写 Git 提交者账号', 'error');
+      return;
+    }
+  } else {
+    if (!author) {
+      showStatus(queryStatus, '请填写提交者账号', 'error');
+      return;
+    }
   }
 
   if (mode === 'month') {
@@ -857,9 +1138,9 @@ queryBtn.addEventListener('click', async () => {
     let result;
 
     if (connectionConfig.vcs === 'svn') {
-      // SVN 查询
+      // SVN 查询（只查询选中的项目）
       result = await window.svnAPI.getStats(
-        connectionConfig.svn.projects,
+        getSelectedSvnProjects(),
         connectionConfig.svn.username,
         connectionConfig.svn.password,
         author,
@@ -870,7 +1151,7 @@ queryBtn.addEventListener('click', async () => {
         startDateStr,
         endDateStr
       );
-    } else {
+    } else if (connectionConfig.vcs === 'git') {
       // Git 模式（使用多仓库配置）
       result = await window.multiRepoAPI.getStats({
         author,
@@ -882,6 +1163,62 @@ queryBtn.addEventListener('click', async () => {
         endDate: endDateStr,
         git: connectionConfig.git
       });
+    } else if (connectionConfig.vcs === 'mixed') {
+      // 混合模式：先获取 SVN 结果，再获取 Git 结果，然后合并
+      const svnAuthor = document.getElementById('svnAuthor').value.trim();
+      const gitAuthor = authorInput.value.trim();
+      const [svnResult, gitResult] = await Promise.all([
+        window.svnAPI.getStats(
+          getSelectedSvnProjects(),
+          connectionConfig.svn.username,
+          connectionConfig.svn.password,
+          svnAuthor,
+          year,
+          month,
+          connectionConfig.threshold,
+          connectionConfig.formatThreshold,
+          startDateStr,
+          endDateStr
+        ),
+        window.multiRepoAPI.getStats({
+          author: gitAuthor,
+          year,
+          month,
+          threshold: connectionConfig.threshold,
+          formatThreshold: connectionConfig.formatThreshold,
+          startDate: startDateStr,
+          endDate: endDateStr,
+          git: connectionConfig.git
+        })
+      ]);
+
+      if (svnResult.success && gitResult.success) {
+        // 合并 SVN 和 Git 的结果
+        result = {
+          success: true,
+          data: mergeQueryResults(svnResult.data, gitResult.data)
+        };
+      } else if (svnResult.success) {
+        // 只有 SVN 成功 - 给所有 commits 添加 source 标记
+        result = {
+          success: true,
+          data: {
+            ...svnResult.data,
+            commits: (svnResult.data.commits || []).map(c => ({ ...c, source: 'svn' }))
+          }
+        };
+      } else if (gitResult.success) {
+        // 只有 Git 成功 - 给所有 commits 添加 source 标记
+        result = {
+          success: true,
+          data: {
+            ...gitResult.data,
+            commits: (gitResult.data.commits || []).map(c => ({ ...c, source: 'git' }))
+          }
+        };
+      } else {
+        result = { success: false, error: 'SVN 和 Git 查询均失败' };
+      }
     }
 
     if (result.success) {
@@ -901,6 +1238,65 @@ queryBtn.addEventListener('click', async () => {
     queryBtn.disabled = false;
   }
 });
+
+// 合并 SVN 和 Git 的查询结果
+function mergeQueryResults(svnData, gitData) {
+  const merged = {
+    totalCommits: (svnData.totalCommits || 0) + (gitData.totalCommits || 0),
+    totalAdded: (svnData.totalAdded || 0) + (gitData.totalAdded || 0),
+    totalDeleted: (svnData.totalDeleted || 0) + (gitData.totalDeleted || 0),
+    overThresholdCount: (svnData.overThresholdCount || 0) + (gitData.overThresholdCount || 0),
+    formatCodeCount: (svnData.formatCodeCount || 0) + (gitData.formatCodeCount || 0),
+    activeDays: [],
+    commitTypeStats: {},
+    chartData: [],
+    commits: [],
+    projectStats: {},
+    branchStats: {}
+  };
+
+  // 合并活跃天数（去重）- 安全处理非数组情况
+  const svnActiveDays = Array.isArray(svnData.activeDays) ? svnData.activeDays : [];
+  const gitActiveDays = Array.isArray(gitData.activeDays) ? gitData.activeDays : [];
+  const activeDaysSet = new Set([...svnActiveDays, ...gitActiveDays]);
+  merged.activeDays = Array.from(activeDaysSet);
+
+  // 合并提交类型统计
+  const typeKeys = new Set([...Object.keys(svnData.commitTypeStats || {}), ...Object.keys(gitData.commitTypeStats || {})]);
+  typeKeys.forEach(type => {
+    merged.commitTypeStats[type] = (svnData.commitTypeStats?.[type] || 0) + (gitData.commitTypeStats?.[type] || 0);
+  });
+
+  // 合并图表数据（按日期合并）
+  const chartMap = {};
+  [...(svnData.chartData || []), ...(gitData.chartData || [])].forEach(day => {
+    if (!chartMap[day.date]) {
+      chartMap[day.date] = { date: day.date, added: 0, deleted: 0, commits: 0 };
+    }
+    chartMap[day.date].added += day.added;
+    chartMap[day.date].deleted += day.deleted;
+    chartMap[day.date].commits += day.commits;
+  });
+  merged.chartData = Object.values(chartMap).sort((a, b) => a.date.localeCompare(b.date));
+
+  // 合并提交记录
+  const svnCommits = (svnData.commits || []).map(c => ({ ...c, source: 'svn' }));
+  const gitCommits = (gitData.commits || []).map(c => ({ ...c, source: 'git' }));
+  merged.commits = [...svnCommits, ...gitCommits];
+  // 按日期排序
+  merged.commits.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+  // 合并项目统计（SVN 用 projectStats）
+  Object.assign(merged.projectStats, svnData.projectStats || {});
+
+  // 合并分支统计（Git 用 branchStats）
+  // 对于混合模式，同时保留 SVN 和 Git 的统计数据用于显示
+  Object.keys(gitData.branchStats || {}).forEach(branchKey => {
+    merged.branchStats[branchKey] = gitData.branchStats[branchKey];
+  });
+
+  return merged;
+}
 
 // 显示状态信息
 function showStatus(element, message, type) {
@@ -928,21 +1324,115 @@ function updateCharts() {
     chartData = queryResult.chartData;
     commitTypeStats = queryResult.commitTypeStats;
   } else {
+    chartData = [];
+    commitTypeStats = {};
     // 从 branchStats/projectStats 中提取选中分组的数据
     const isGit = connectionConfig.vcs === 'git';
+    const isMixed = connectionConfig.vcs === 'mixed';
     let statsSource;
     let groupStats;
 
     if (selectedGroup !== 'all') {
       // 单模式：使用原有逻辑
-      statsSource = isGit ? queryResult.branchStats : queryResult.projectStats;
-      groupStats = statsSource ? statsSource[selectedGroup] : null;
+      if (isMixed) {
+        // 混合模式根据 selectedGroup 的前缀判断使用哪个统计源
+        if (selectedGroup.startsWith('[SVN] ')) {
+          statsSource = queryResult.projectStats;
+          groupStats = statsSource ? statsSource[selectedGroup.replace('[SVN] ', '')] : null;
+        } else if (selectedGroup.startsWith('[Git] ')) {
+          const repoName = selectedGroup.replace('[Git] ', '');
+          // 收集该仓库所有分支的数据并合并
+          const mergedDailyStats = {};
+          const mergedCommitTypeStats = {};
+          for (const [branchKey, branchData] of Object.entries(queryResult.branchStats || {})) {
+            if (branchData.repoName === repoName) {
+              // 合并 dailyStats
+              for (const [date, dayStats] of Object.entries(branchData.dailyStats || {})) {
+                if (!mergedDailyStats[date]) {
+                  mergedDailyStats[date] = { added: 0, deleted: 0, commits: 0 };
+                }
+                mergedDailyStats[date].added += dayStats.added;
+                mergedDailyStats[date].deleted += dayStats.deleted;
+                mergedDailyStats[date].commits += dayStats.commits;
+              }
+            }
+          }
+          // 构建 chartData
+          chartData = Object.keys(mergedDailyStats).sort().map(date => ({
+            date,
+            added: mergedDailyStats[date].added,
+            deleted: mergedDailyStats[date].deleted,
+            commits: mergedDailyStats[date].commits
+          }));
+          // commitTypeStats 通过遍历 commits 计算
+          commitTypeStats = {};
+          for (const commit of queryResult.commits) {
+            if (commit.repoName === repoName) {
+              const type = commit.commitType || 'other';
+              commitTypeStats[type] = (commitTypeStats[type] || 0) + 1;
+            }
+          }
+        }
+      } else {
+        // Git 模式：检查是否是仓库级别的 tab（通过查找是否有对应的 repoName）
+        statsSource = isGit ? queryResult.branchStats : queryResult.projectStats;
+        const repoName = selectedGroup;
+        // 检查是否有以该 repoName 开头的 branchKey
+        let hasRepoLevelTab = false;
+        for (const key of Object.keys(statsSource || {})) {
+          const stats = statsSource[key];
+          if (stats.repoName === repoName) {
+            hasRepoLevelTab = true;
+            break;
+          }
+        }
+        if (hasRepoLevelTab) {
+          // 收集该仓库所有分支的数据并合并
+          const mergedDailyStats = {};
+          for (const [branchKey, branchData] of Object.entries(statsSource || {})) {
+            if (branchData.repoName === repoName) {
+              for (const [date, dayStats] of Object.entries(branchData.dailyStats || {})) {
+                if (!mergedDailyStats[date]) {
+                  mergedDailyStats[date] = { added: 0, deleted: 0, commits: 0 };
+                }
+                mergedDailyStats[date].added += dayStats.added;
+                mergedDailyStats[date].deleted += dayStats.deleted;
+                mergedDailyStats[date].commits += dayStats.commits;
+              }
+            }
+          }
+          chartData = Object.keys(mergedDailyStats).sort().map(date => ({
+            date,
+            added: mergedDailyStats[date].added,
+            deleted: mergedDailyStats[date].deleted,
+            commits: mergedDailyStats[date].commits
+          }));
+          commitTypeStats = {};
+          for (const commit of queryResult.commits) {
+            if (commit.repoName === repoName) {
+              const type = commit.commitType || 'other';
+              commitTypeStats[type] = (commitTypeStats[type] || 0) + 1;
+            }
+          }
+        } else {
+          groupStats = statsSource ? statsSource[selectedGroup] : null;
+        }
+      }
+    }
+
+    // 如果 chartData 已经有值（仓库级别 tab 已设置），跳过 chartData 构建
+    // 同时跳过 commitTypeStats 构建因为已经计算过了
+    if (chartData.length > 0) {
+      // chartData 已有值，直接返回（不覆盖 commitTypeStats）
+      renderLineChart(chartData);
+      renderBarChart(chartData);
+      renderPieChart(commitTypeStats);
+      return;
     }
 
     if (!groupStats) return;
 
     // 重构 chartData：从 groupStats.dailyStats 构建
-    chartData = [];
     const allDates = Object.keys(groupStats.dailyStats || {}).sort();
     for (const dateStr of allDates) {
       const dayStats = groupStats.dailyStats[dateStr];
@@ -955,11 +1445,24 @@ function updateCharts() {
     }
 
     // 重构 commitTypeStats：遍历该分组的 commits 统计
-    commitTypeStats = {};
     const isGitMode = connectionConfig.vcs === 'git';
+    const isMixedMode = connectionConfig.vcs === 'mixed';
     for (const commit of queryResult.commits) {
-      if (isGitMode && commit.project !== selectedGroup) continue;
-      if (!isGitMode && commit.project !== selectedGroup) continue;
+      if (isMixedMode) {
+        if (selectedGroup.startsWith('[SVN] ')) {
+          const name = selectedGroup.replace('[SVN] ', '');
+          if (commit.project !== name) continue;
+        } else if (selectedGroup.startsWith('[Git] ')) {
+          const name = selectedGroup.replace('[Git] ', '');
+          if (commit.repoName !== name) continue;
+        } else {
+          continue;
+        }
+      } else if (isGitMode) {
+        if (commit.repoName !== selectedGroup) continue;
+      } else {
+        if (commit.project !== selectedGroup) continue;
+      }
       const type = commit.commitType || 'other';
       commitTypeStats[type] = (commitTypeStats[type] || 0) + 1;
     }
@@ -973,33 +1476,67 @@ function updateCharts() {
 // 渲染分组选项卡（项目或分支）
 function renderGroupingTabs() {
   const isGit = connectionConfig.vcs === 'git';
-  const statsSource = isGit ? queryResult.branchStats : queryResult.projectStats;
-  const groupNames = Object.keys(statsSource || {});
-  const allText = isGit ? '全部仓库' : '全部项目';
+  const isMixed = connectionConfig.vcs === 'mixed';
+  const isSvn = connectionConfig.vcs === 'svn';
+  const svnStatsSource = queryResult.projectStats || {};
+  const gitStatsSource = queryResult.branchStats || {};
+
+  console.log('[DEBUG] renderGroupingTabs', {
+    vcs: connectionConfig.vcs,
+    svnStatsSourceKeys: Object.keys(svnStatsSource),
+    gitStatsSourceKeys: Object.keys(gitStatsSource),
+    queryResultProjectStats: queryResult.projectStats,
+    connectionConfigSvnProjects: connectionConfig.svn?.projects,
+    mergedKeys: Object.keys(queryResult)
+  });
+
+  const allText = isMixed ? '全部' : (isGit ? '全部仓库' : '全部项目');
 
   let html = `<button class="project-tab ${selectedGroup === 'all' ? 'active' : ''}" data-group="all">${allText}</button>`;
 
-  groupNames.forEach(name => {
-    const isGitRepo = isGit && queryResult.branchStats && queryResult.branchStats[name];
-    if (isGit && isGitRepo) {
-      // Git 仓库可展开
-      html += `
-        <button class="project-tab expandable" data-group="${name}">
-          ${name} <span class="expand-icon">▼</span>
-        </button>
-        <div class="branch-filter" data-for="${name}" style="display:none;">
-          <div class="branch-checkboxes">${renderBranchCheckboxes(name)}</div>
-        </div>
-      `;
-    } else {
+  // Git 模式：使用 branchStats
+  if (isGit) {
+    Object.keys(gitStatsSource || {}).forEach(name => {
       html += `<button class="project-tab ${selectedGroup === name ? 'active' : ''}" data-group="${name}">${name}</button>`;
+    });
+  } else if (isMixed) {
+    // 混合模式：先显示 SVN 项目，再显示 Git 仓库
+    // SVN 项目：使用 projectStats 的 key（包含 [SVN] 前缀）
+    Object.keys(svnStatsSource || {}).forEach(name => {
+      const tabName = `[SVN] ${name}`;
+      html += `<button class="project-tab ${selectedGroup === tabName ? 'active' : ''}" data-group="${tabName}">${tabName}</button>`;
+    });
+    // Git 仓库：使用 branchStats 的 repoName（去重）
+    const gitReposSeen = new Set();
+    Object.keys(gitStatsSource || {}).forEach(key => {
+      const stats = gitStatsSource[key];
+      const repoName = stats.repoName || key.split('/')[0];
+      if (gitReposSeen.has(repoName)) return;
+      gitReposSeen.add(repoName);
+      const tabName = `[Git] ${repoName}`;
+      html += `<button class="project-tab ${selectedGroup === tabName ? 'active' : ''}" data-group="${tabName}">${tabName}</button>`;
+    });
+  } else {
+    // SVN 模式：优先使用 connectionConfig.svn.projects 显示所有项目
+    const svnProjects = connectionConfig.svn?.projects || [];
+    if (svnProjects.length > 0) {
+      // 显示所有配置的项目（无论有没有统计数据）
+      svnProjects.forEach(project => {
+        const hasStats = svnStatsSource[project.name];
+        html += `<button class="project-tab ${selectedGroup === project.name ? 'active' : ''}" data-group="${project.name}">${project.name}${hasStats ? '' : '(无数据)'}</button>`;
+      });
+    } else {
+      // 回退到 projectStats
+      Object.keys(svnStatsSource || {}).forEach(name => {
+        html += `<button class="project-tab ${selectedGroup === name ? 'active' : ''}" data-group="${name}">${name}</button>`;
+      });
     }
-  });
+  }
 
   projectTabs.innerHTML = html;
 
-  // 绑定点击事件（普通标签）
-  projectTabs.querySelectorAll('.project-tab:not(.expandable)').forEach(tab => {
+  // 绑定点击事件
+  projectTabs.querySelectorAll('.project-tab').forEach(tab => {
     tab.addEventListener('click', () => {
       selectedGroup = tab.dataset.group;
       projectTabs.querySelectorAll('.project-tab').forEach(t => t.classList.remove('active'));
@@ -1007,22 +1544,6 @@ function renderGroupingTabs() {
       updateStats();
       updateCharts();
       applyFilter();
-    });
-  });
-
-  // 绑定展开事件
-  projectTabs.querySelectorAll('.project-tab.expandable').forEach(tab => {
-    tab.addEventListener('click', () => {
-      const groupName = tab.dataset.group;
-      const filterDiv = projectTabs.querySelector(`.branch-filter[data-for="${groupName}"]`);
-      const icon = tab.querySelector('.expand-icon');
-      if (filterDiv.style.display === 'none') {
-        filterDiv.style.display = 'block';
-        icon.textContent = '▲';
-      } else {
-        filterDiv.style.display = 'none';
-        icon.textContent = '▼';
-      }
     });
   });
 }
@@ -1101,7 +1622,7 @@ function onBranchFilterChange(groupName, checked) {
 
   // 更新活跃天数
   const activeDays = new Set(filteredCommits.map(c => c.date.substring(0, 10)));
-  document.getElementById('activeDays').textContent = activeDays.size;
+  document.getElementById('activeDays').textContent = activeDays.size + '天';
 
   // 更新图表
   const chartData = buildFilteredChartData(groupName, selectedBranches, filteredCommits);
@@ -1176,7 +1697,26 @@ function buildFilteredChartData(groupName, selectedBranches, filteredCommits) {
 function updateStats() {
   let stats;
   const isGit = connectionConfig.vcs === 'git';
-  const statsSource = isGit ? queryResult.branchStats : queryResult.projectStats;
+  const isMixed = connectionConfig.vcs === 'mixed';
+  let statsSource;
+  let isRepoLevelTab = false;
+  let groupStats = null;
+
+  if (isMixed) {
+    // 混合模式：同时检查 projectStats 和 branchStats
+    statsSource = { ...queryResult.projectStats, ...queryResult.branchStats };
+  } else {
+    statsSource = isGit ? queryResult.branchStats : queryResult.projectStats;
+  }
+
+  console.log('[DEBUG] updateStats', {
+    selectedGroup,
+    isGit,
+    isMixed,
+    statsSourceKeys: Object.keys(statsSource || {}),
+    statsSourceForSelectedGroup: statsSource?.[selectedGroup]
+  });
+
   const breakdownSection = document.getElementById('projectStatsSection');
   const breakdownTitle = breakdownSection.querySelector('h3');
 
@@ -1191,14 +1731,114 @@ function updateStats() {
     breakdownSection.classList.remove('hidden');
     breakdownTitle.textContent = isGit ? '各分支代码量统计' : '各项目代码量统计';
   } else {
-    const groupStats = statsSource[selectedGroup];
-    stats = {
-      totalCommits: groupStats.totalCommits,
-      totalAdded: groupStats.totalAdded,
-      totalDeleted: groupStats.totalDeleted,
-      overThresholdCount: groupStats.overThresholdCount,
-      formatCodeCount: groupStats.formatCodeCount
-    };
+    // 处理 Git 或混合模式的仓库级别 tab
+    let lookupKey = selectedGroup;
+
+    // 混合模式需要处理前缀
+    if (isMixed) {
+      if (selectedGroup.startsWith('[SVN] ')) {
+        lookupKey = selectedGroup.replace('[SVN] ', '');
+        statsSource = queryResult.projectStats;
+        groupStats = statsSource ? statsSource[lookupKey] : null;
+        isRepoLevelTab = false;
+      } else if (selectedGroup.startsWith('[Git] ')) {
+        lookupKey = selectedGroup.replace('[Git] ', '');
+        // 检查是否是仓库级别的 tab
+        isRepoLevelTab = false;
+        for (const key of Object.keys(queryResult.branchStats || {})) {
+          const stats = queryResult.branchStats[key];
+          if (stats.repoName === lookupKey) {
+            isRepoLevelTab = true;
+            break;
+          }
+        }
+        if (isRepoLevelTab) {
+          // 收集该仓库所有分支的数据并合并
+          let aggregatedStats = null;
+          for (const [branchKey, branchData] of Object.entries(queryResult.branchStats || {})) {
+            if (branchData.repoName === lookupKey) {
+              if (!aggregatedStats) {
+                aggregatedStats = {
+                  totalCommits: 0,
+                  totalAdded: 0,
+                  totalDeleted: 0,
+                  overThresholdCount: 0,
+                  formatCodeCount: 0
+                };
+              }
+              aggregatedStats.totalCommits += branchData.totalCommits;
+              aggregatedStats.totalAdded += branchData.totalAdded;
+              aggregatedStats.totalDeleted += branchData.totalDeleted;
+              aggregatedStats.overThresholdCount += branchData.overThresholdCount;
+              aggregatedStats.formatCodeCount += branchData.formatCodeCount;
+            }
+          }
+          groupStats = aggregatedStats;
+        } else {
+          groupStats = queryResult.branchStats ? queryResult.branchStats[selectedGroup] : null;
+        }
+      }
+    } else if (isGit) {
+      // 纯 Git 模式
+      // 检查是否是仓库级别的 tab
+      isRepoLevelTab = false;
+      for (const key of Object.keys(queryResult.branchStats || {})) {
+        const stats = queryResult.branchStats[key];
+        if (stats.repoName === selectedGroup) {
+          isRepoLevelTab = true;
+          break;
+        }
+      }
+      if (isRepoLevelTab) {
+        // 收集该仓库所有分支的数据并合并
+        let aggregatedStats = null;
+        for (const [branchKey, branchData] of Object.entries(queryResult.branchStats || {})) {
+          if (branchData.repoName === selectedGroup) {
+            if (!aggregatedStats) {
+              aggregatedStats = {
+                totalCommits: 0,
+                totalAdded: 0,
+                totalDeleted: 0,
+                overThresholdCount: 0,
+                formatCodeCount: 0
+              };
+            }
+            aggregatedStats.totalCommits += branchData.totalCommits;
+            aggregatedStats.totalAdded += branchData.totalAdded;
+            aggregatedStats.totalDeleted += branchData.totalDeleted;
+            aggregatedStats.overThresholdCount += branchData.overThresholdCount;
+            aggregatedStats.formatCodeCount += branchData.formatCodeCount;
+          }
+        }
+        groupStats = aggregatedStats;
+      } else {
+        groupStats = statsSource ? statsSource[selectedGroup] : null;
+      }
+    } else {
+      // SVN 模式
+      groupStats = statsSource ? statsSource[lookupKey] : null;
+      isRepoLevelTab = false;
+    }
+
+    console.log('[DEBUG] updateStats groupStats lookup', { selectedGroup, lookupKey, isMixed, isGit, isRepoLevelTab, groupStats });
+    if (!groupStats) {
+      // 项目没有统计数据，显示为空
+      stats = {
+        totalCommits: 0,
+        totalAdded: 0,
+        totalDeleted: 0,
+        overThresholdCount: 0,
+        formatCodeCount: 0
+      };
+    } else {
+      stats = {
+        totalCommits: groupStats.totalCommits,
+        totalAdded: groupStats.totalAdded,
+        totalDeleted: groupStats.totalDeleted,
+        overThresholdCount: groupStats.overThresholdCount,
+        formatCodeCount: groupStats.formatCodeCount
+      };
+    }
     breakdownSection.classList.add('hidden');
   }
 
@@ -1211,20 +1851,28 @@ function updateStats() {
 
   // 活跃天数：选择全部时用全局数据，选择分支时用该分支的数据
   if (selectedGroup === 'all') {
-    document.getElementById('activeDays').textContent = queryResult.activeDays;
+    const activeDaysCount = Array.isArray(queryResult.activeDays)
+      ? queryResult.activeDays.length
+      : (queryResult.activeDays || 0);
+    document.getElementById('activeDays').textContent = activeDaysCount + '天';
   } else {
     // 从分支的 dailyStats 计算活跃天数
-    const groupStats = statsSource[selectedGroup];
-    const activeDays = groupStats ? Object.keys(groupStats.dailyStats || {}).length : 0;
-    document.getElementById('activeDays').textContent = activeDays;
+    let activeDays = 0;
+    if (isRepoLevelTab && groupStats && groupStats.dailyStats) {
+      activeDays = Object.keys(groupStats.dailyStats).length;
+    } else if (groupStats && groupStats.dailyStats) {
+      activeDays = Object.keys(groupStats.dailyStats).length;
+    }
+    document.getElementById('activeDays').textContent = activeDays + '天';
   }
 }
 
 // 渲染项目/分支统计表格
 function renderBreakdownTable() {
   const isGit = connectionConfig.vcs === 'git';
-  const statsSource = isGit ? queryResult.branchStats : queryResult.projectStats;
-  const headerLabel = isGit ? '分支名称' : '项目名称';
+  const isMixed = connectionConfig.vcs === 'mixed';
+  const statsSource = isGit ? queryResult.branchStats : (isMixed ? { ...queryResult.projectStats, ...queryResult.branchStats } : queryResult.projectStats);
+  const headerLabel = isGit ? '项目名称' : '项目名称';
 
   const projectStatsBody = document.getElementById('projectStatsBody');
   const projectStatsFoot = document.getElementById('projectStatsFoot');
@@ -1242,32 +1890,118 @@ function renderBreakdownTable() {
   let totalCommits = 0, totalAdded = 0, totalDeleted = 0, totalFeat = 0, totalFix = 0, totalOther = 0;
 
   let html = '';
-  groupNames.forEach(name => {
-    const groupStats = statsSource[name];
-    const net = groupStats.totalAdded - groupStats.totalDeleted;
 
-    totalCommits += groupStats.totalCommits;
-    totalAdded += groupStats.totalAdded;
-    totalDeleted += groupStats.totalDeleted;
-    totalFeat += groupStats.featCount || 0;
-    totalFix += groupStats.fixCount || 0;
-    totalOther += groupStats.otherCount || 0;
+  if (isGit || (isMixed && Object.keys(queryResult.branchStats || {}).length > 0)) {
+    // Git 模式/混合模式 Git 部分：按仓库分组，渲染树形表格
+    const repoGroups = {};
+    const gitGroupNames = Object.keys(queryResult.branchStats || {});
 
-    html += `
-      <tr>
-        <td>${escapeHtml(name)}</td>
-        <td class="num">${groupStats.totalCommits}</td>
-        <td class="num added">+${groupStats.totalAdded.toLocaleString()}</td>
-        <td class="num deleted">-${groupStats.totalDeleted.toLocaleString()}</td>
-        <td class="num net">${net >= 0 ? '+' : ''}${net.toLocaleString()}</td>
-        <td class="num feat">${groupStats.featCount || 0}</td>
-        <td class="num fix">${groupStats.fixCount || 0}</td>
-        <td class="num other">${groupStats.otherCount || 0}</td>
-      </tr>
-    `;
-  });
+    for (const key of gitGroupNames) {
+      const stats = queryResult.branchStats[key];
+      const repoName = stats.repoName || key.split('/')[0];
+      if (!repoGroups[repoName]) {
+        repoGroups[repoName] = {
+          branches: {},
+          totalCommits: 0, totalAdded: 0, totalDeleted: 0,
+          featCount: 0, fixCount: 0, otherCount: 0
+        };
+      }
+      repoGroups[repoName].branches[key] = stats;
+      repoGroups[repoName].totalCommits += stats.totalCommits;
+      repoGroups[repoName].totalAdded += stats.totalAdded;
+      repoGroups[repoName].totalDeleted += stats.totalDeleted;
+      repoGroups[repoName].featCount += stats.featCount || 0;
+      repoGroups[repoName].fixCount += stats.fixCount || 0;
+      repoGroups[repoName].otherCount += stats.otherCount || 0;
+
+      totalCommits += stats.totalCommits;
+      totalAdded += stats.totalAdded;
+      totalDeleted += stats.totalDeleted;
+      totalFeat += stats.featCount || 0;
+      totalFix += stats.fixCount || 0;
+      totalOther += stats.otherCount || 0;
+    }
+
+    for (const [repoName, repoData] of Object.entries(repoGroups)) {
+      const repoNet = repoData.totalAdded - repoData.totalDeleted;
+      const branchCount = Object.keys(repoData.branches).length;
+
+      // 仓库父节点 - 默认展开
+      html += `
+        <tr class="stats-repo-row expanded" data-repo="${escapeHtml(repoName)}">
+          <td><span class="expand-icon" data-action="toggle">▼</span> <span class="vcs-tag git-tag">[Git]</span> ${escapeHtml(repoName)} (${branchCount}个分支)</td>
+          <td class="num">${repoData.totalCommits}</td>
+          <td class="num added">+${repoData.totalAdded.toLocaleString()}</td>
+          <td class="num deleted">-${repoData.totalDeleted.toLocaleString()}</td>
+          <td class="num net">${repoNet >= 0 ? '+' : ''}${repoNet.toLocaleString()}</td>
+          <td class="num feat">${repoData.featCount}</td>
+          <td class="num fix">${repoData.fixCount}</td>
+          <td class="num other">${repoData.otherCount}</td>
+        </tr>
+      `;
+
+      // 分支子节点
+      for (const [branchKey, branchStats] of Object.entries(repoData.branches)) {
+        const branchName = branchStats.branchName || branchKey.split('/')[1] || branchKey;
+        const branchNet = branchStats.totalAdded - branchStats.totalDeleted;
+        html += `
+          <tr class="stats-branch-row" data-repo="${escapeHtml(repoName)}">
+            <td style="padding-left: 30px;">└ ${escapeHtml(branchName)}</td>
+            <td class="num">${branchStats.totalCommits}</td>
+            <td class="num added">+${branchStats.totalAdded.toLocaleString()}</td>
+            <td class="num deleted">-${branchStats.totalDeleted.toLocaleString()}</td>
+            <td class="num net">${branchNet >= 0 ? '+' : ''}${branchNet.toLocaleString()}</td>
+            <td class="num feat">${branchStats.featCount || 0}</td>
+            <td class="num fix">${branchStats.fixCount || 0}</td>
+            <td class="num other">${branchStats.otherCount || 0}</td>
+          </tr>
+        `;
+      }
+    }
+  }
+
+  // SVN 部分（混合模式或纯 SVN 模式）
+  if (!isGit || (isMixed && Object.keys(queryResult.projectStats || {}).length > 0)) {
+    const svnGroupNames = Object.keys(statsSource || {});
+    svnGroupNames.forEach(name => {
+      // 跳过 Git 的统计数据（已经在上面处理了）
+      if (queryResult.branchStats && queryResult.branchStats[name]) return;
+
+      const groupStats = statsSource[name];
+      if (!groupStats) return;
+      const net = groupStats.totalAdded - groupStats.totalDeleted;
+
+      totalCommits += groupStats.totalCommits;
+      totalAdded += groupStats.totalAdded;
+      totalDeleted += groupStats.totalDeleted;
+      totalFeat += groupStats.featCount || 0;
+      totalFix += groupStats.fixCount || 0;
+      totalOther += groupStats.otherCount || 0;
+
+      html += `
+        <tr>
+          <td><span class="vcs-tag svn-tag">[SVN]</span> ${escapeHtml(name)}</td>
+          <td class="num">${groupStats.totalCommits}</td>
+          <td class="num added">+${groupStats.totalAdded.toLocaleString()}</td>
+          <td class="num deleted">-${groupStats.totalDeleted.toLocaleString()}</td>
+          <td class="num net">${net >= 0 ? '+' : ''}${net.toLocaleString()}</td>
+          <td class="num feat">${groupStats.featCount || 0}</td>
+          <td class="num fix">${groupStats.fixCount || 0}</td>
+          <td class="num other">${groupStats.otherCount || 0}</td>
+        </tr>
+      `;
+    });
+  }
 
   projectStatsBody.innerHTML = html;
+
+  // 使用事件委托处理展开/折叠
+  projectStatsBody.onclick = function(e) {
+    const icon = e.target.closest('.expand-icon');
+    if (icon) {
+      toggleStatsRepoRow(icon);
+    }
+  };
 
   const totalNet = totalAdded - totalDeleted;
   projectStatsFoot.innerHTML = `
@@ -1284,6 +2018,41 @@ function renderBreakdownTable() {
   `;
 }
 
+// 切换统计表格仓库行的展开/折叠
+function toggleStatsRepoRow(icon) {
+  const row = icon.closest('tr');
+  const repoName = row.dataset.repo;
+  const isExpanded = row.classList.contains('expanded');
+
+  // 切换父节点图标
+  if (isExpanded) {
+    row.classList.remove('expanded');
+    icon.textContent = '▼';
+  } else {
+    row.classList.add('expanded');
+    icon.textContent = '▲';
+  }
+
+  // 获取表格所有行
+  const tbody = row.parentNode;
+  const allRows = Array.from(tbody.querySelectorAll('tr'));
+  const rowIndex = allRows.indexOf(row);
+  const isSVN = connectionConfig.vcs !== 'git';
+
+  // 遍历后续行
+  for (let i = rowIndex + 1; i < allRows.length; i++) {
+    const r = allRows[i];
+    // SVN 模式或遇到下一个仓库父节点则停止
+    if (isSVN || r.classList.contains('stats-repo-row')) {
+      break;
+    }
+    // 同仓库的分支行，切换显示
+    if (r.classList.contains('stats-branch-row') && r.dataset.repo === repoName) {
+      r.style.display = isExpanded ? 'none' : '';
+    }
+  }
+}
+
 // 筛选提交记录
 function applyFilter() {
   const typeFilter = filterType.value;
@@ -1292,10 +2061,39 @@ function applyFilter() {
 
   let commits = queryResult.commits;
 
-  // 按分组（项目或分支）筛选
+  // 按分组（项目或仓库）筛选
   if (selectedGroup !== 'all') {
-    // 在Git模式下，commit.project被赋值为分支名称
-    commits = commits.filter(c => c.project === selectedGroup);
+    // Git模式下使用 repoName 筛选，SVN模式下使用 project
+    commits = commits.filter(c => {
+      if (connectionConfig.vcs === 'git') {
+        // 检查是否是仓库级别的 tab
+        const isRepoLevelTab = (() => {
+          for (const key of Object.keys(queryResult.branchStats || {})) {
+            const stats = queryResult.branchStats[key];
+            if (stats.repoName === selectedGroup) return true;
+          }
+          return false;
+        })();
+        if (isRepoLevelTab) {
+          return c.repoName === selectedGroup;
+        } else {
+          // 分支级别 tab，使用 project 或完整的 key 匹配
+          return c.project === selectedGroup || c.project.endsWith('/' + selectedGroup);
+        }
+      } else if (connectionConfig.vcs === 'svn') {
+        return c.project === selectedGroup;
+      } else if (connectionConfig.vcs === 'mixed') {
+        // 混合模式根据前缀判断
+        if (selectedGroup.startsWith('[SVN] ')) {
+          const name = selectedGroup.replace('[SVN] ', '');
+          return c.project === name;
+        } else if (selectedGroup.startsWith('[Git] ')) {
+          const name = selectedGroup.replace('[Git] ', '');
+          return c.repoName === name;
+        }
+      }
+      return true;
+    });
   }
 
   // 按类型筛选
@@ -1313,7 +2111,8 @@ function applyFilter() {
     commits = commits.filter(c =>
       c.message.toLowerCase().includes(keywordFilter) ||
       c.revision.includes(keywordFilter) ||
-      c.project.toLowerCase().includes(keywordFilter)
+      c.project.toLowerCase().includes(keywordFilter) ||
+      (c.branch && c.branch.toLowerCase().includes(keywordFilter))
     );
   }
 
@@ -1341,63 +2140,190 @@ function renderCommitsTable() {
   const pageCommits = filteredCommits.slice(start, end);
 
   if (pageCommits.length === 0) {
-    commitsBody.innerHTML = '<tr><td colspan="11" style="text-align: center; color: #999; padding: 30px;">暂无提交记录</td></tr>';
+    commitsBody.innerHTML = '<tr><td colspan="12" style="text-align: center; color: #999; padding: 30px;">暂无提交记录</td></tr>';
     updateSelectedCount();
     return;
   }
 
+  const isGit = connectionConfig.vcs === 'git';
+  const isMixed = connectionConfig.vcs === 'mixed';
   let html = '';
-  pageCommits.forEach((commit, index) => {
-    const globalIndex = start + index;
-    const dateStr = commit.date.substring(0, 10);
-    const typeClass = commit.commitType;
-    const statusClass = commit.status;
-    const statusText = {
-      normal: '正常',
-      over: '超阈值',
-      format: '格式化'
-    }[commit.status];
 
-    // 规范性标签
-    const normTag = commit.normStatus === 'pass'
-      ? '<span class="norm-tag norm-pass">规范</span>'
-      : '<span class="norm-tag norm-fail">不规范</span>';
-    // 重复标签
-    const dupTag = commit.isDuplicate ? '<span class="dup-tag">重复</span>' : '';
+  // 分离 Git 提交和 SVN 提交
+  const gitCommits = pageCommits.filter(c => c.repoName || c.branch);
+  const svnCommits = pageCommits.filter(c => !c.repoName && !c.branch);
 
-    const isChecked = selectedCommitIndices.has(globalIndex) ? 'checked' : '';
+  if ((isGit || (isMixed && gitCommits.length > 0)) && gitCommits.length > 0) {
+    // Git 模式或混合模式 Git 部分：按仓库分组，渲染树形表格
+    const repoGroups = {};
+    for (const commit of gitCommits) {
+      const repoName = commit.repoName || commit.project;
+      if (!repoGroups[repoName]) {
+        repoGroups[repoName] = [];
+      }
+      repoGroups[repoName].push(commit);
+    }
 
-    // 来源标签
-    const sourceTag = commit.source === 'svn'
-      ? '<span class="source-tag svn">[SVN]</span>'
-      : '<span class="source-tag git">[Git]</span>';
+    for (const [repoName, commits] of Object.entries(repoGroups)) {
+      // 仓库父节点 - 默认展开
+      html += `
+        <tr class="repo-row expanded" data-repo="${escapeHtml(repoName)}">
+          <td class="checkbox-col"><input type="checkbox" class="repo-checkbox" data-repo="${escapeHtml(repoName)}" onchange="toggleRepoCommits('${escapeHtml(repoName)}', this.checked)"></td>
+          <td><span class="expand-icon" data-action="toggle">▼</span> <span class="vcs-tag git-tag">[Git]</span> ${escapeHtml(repoName)}</td>
+          <td>-</td>
+          <td>-</td>
+          <td>-</td>
+          <td>-</td>
+          <td>-</td>
+          <td>-</td>
+          <td>-</td>
+          <td>-</td>
+          <td>-</td>
+          <td>-</td>
+        </tr>
+      `;
 
-    html += `
-      <tr>
-        <td class="checkbox-col"><input type="checkbox" class="commit-checkbox" data-index="${globalIndex}" ${isChecked}></td>
-        <td>${escapeHtml(commit.project)}</td>
-        <td>r${commit.revision}</td>
-        <td>${dateStr}</td>
-        <td><span class="commit-type ${typeClass}">${commit.commitType}</span></td>
-        <td class="commit-message" title="${escapeHtml(commit.message)}">${sourceTag}${normTag}${dupTag}${escapeHtml(commit.message)}</td>
-        <td class="num added">+${commit.added}</td>
-        <td class="num deleted">-${commit.deleted}</td>
-        <td class="num">${commit.net >= 0 ? '+' : ''}${commit.net}</td>
-        <td><span class="commit-status ${statusClass}">${statusText}</span></td>
-        <td>
-          <button class="btn-view-diff" onclick="viewCommitDiff(${globalIndex})">查看</button>
-          <button class="btn-review" onclick="reviewCommitCode(${globalIndex})" title="AI审查">🔍</button>
-        </td>
-      </tr>
-    `;
-  });
+      // 按分支排序的子节点
+      const branchGroups = {};
+      for (const commit of commits) {
+        const branchName = commit.branch || 'main';
+        if (!branchGroups[branchName]) {
+          branchGroups[branchName] = [];
+        }
+        branchGroups[branchName].push(commit);
+      }
+
+      for (const [branchName, branchCommits] of Object.entries(branchGroups)) {
+        for (const commit of branchCommits) {
+          const globalIndex = filteredCommits.indexOf(commit);
+          const dateStr = commit.date.substring(0, 10);
+          const statusText = {
+            normal: '正常',
+            over: '超阈值',
+            format: '格式化'
+          }[commit.status];
+          const isChecked = selectedCommitIndices.has(globalIndex) ? 'checked' : '';
+
+          html += `
+            <tr class="commit-row" data-repo="${escapeHtml(repoName)}">
+              <td class="checkbox-col"><input type="checkbox" class="commit-checkbox" data-index="${globalIndex}" ${isChecked}></td>
+              <td style="padding-left: 30px;">└ ${escapeHtml(branchName)}</td>
+              <td>${escapeHtml(branchName)}</td>
+              <td>${commit.revision}</td>
+              <td>${dateStr}</td>
+              <td><span class="commit-type ${commit.commitType}">${commit.commitType}</span></td>
+              <td class="commit-message" title="${escapeHtml(commit.message)}">${escapeHtml(commit.message)}</td>
+              <td class="num added">+${commit.added}</td>
+              <td class="num deleted">-${commit.deleted}</td>
+              <td class="num">${commit.net >= 0 ? '+' : ''}${commit.net}</td>
+              <td><span class="commit-status ${commit.status}">${statusText}</span></td>
+              <td>
+                <button class="btn-view-diff" onclick="viewCommitDiff(${globalIndex})">查看</button>
+                <button class="btn-review" onclick="reviewCommitCode(${globalIndex})" title="AI审查">🔍</button>
+              </td>
+            </tr>
+          `;
+        }
+      }
+    }
+  }
+
+  // SVN 提交渲染（混合模式或纯 SVN 模式）
+  if (svnCommits.length > 0) {
+    for (const commit of svnCommits) {
+      const globalIndex = filteredCommits.indexOf(commit);
+      const dateStr = commit.date.substring(0, 10);
+      const statusText = {
+        normal: '正常',
+        over: '超阈值',
+        format: '格式化'
+      }[commit.status];
+
+      const isChecked = selectedCommitIndices.has(globalIndex) ? 'checked' : '';
+
+      html += `
+        <tr>
+          <td class="checkbox-col"><input type="checkbox" class="commit-checkbox" data-index="${globalIndex}" ${isChecked}></td>
+          <td><span class="vcs-tag svn-tag">[SVN]</span> ${escapeHtml(commit.project)}</td>
+          <td>-</td>
+          <td>${commit.revision}</td>
+          <td>${dateStr}</td>
+          <td><span class="commit-type ${commit.commitType}">${commit.commitType}</span></td>
+          <td class="commit-message" title="${escapeHtml(commit.message)}">${escapeHtml(commit.message)}</td>
+          <td class="num added">+${commit.added}</td>
+          <td class="num deleted">-${commit.deleted}</td>
+          <td class="num">${commit.net >= 0 ? '+' : ''}${commit.net}</td>
+          <td><span class="commit-status ${commit.status}">${statusText}</span></td>
+          <td>
+            <button class="btn-view-diff" onclick="viewCommitDiff(${globalIndex})">查看</button>
+            <button class="btn-review" onclick="reviewCommitCode(${globalIndex})" title="AI审查">🔍</button>
+          </td>
+        </tr>
+      `;
+    }
+  }
 
   commitsBody.innerHTML = html;
+
+  // 使用事件委托处理展开/折叠
+  commitsBody.onclick = function(e) {
+    const icon = e.target.closest('.expand-icon');
+    if (icon) {
+      toggleRepoRow(icon);
+    }
+  };
 
   // 绑定复选框事件
   bindCheckboxEvents();
   updateSelectedCount();
   updateSelectAllCheckbox();
+}
+
+// 切换仓库行的展开/折叠
+function toggleRepoRow(icon) {
+  const row = icon.closest('tr');
+  const repoName = row.dataset.repo;
+  const isExpanded = row.classList.contains('expanded');
+
+  // 切换父节点状态
+  if (isExpanded) {
+    row.classList.remove('expanded');
+  } else {
+    row.classList.add('expanded');
+  }
+
+  // 获取表格所有行
+  const tbody = row.parentNode;
+  const allRows = Array.from(tbody.querySelectorAll('tr'));
+  const rowIndex = allRows.indexOf(row);
+
+  // 遍历后续行
+  for (let i = rowIndex + 1; i < allRows.length; i++) {
+    const r = allRows[i];
+    // 遇到下一个仓库父节点则停止
+    if (r.classList.contains('repo-row')) {
+      break;
+    }
+    // 同仓库的提交行，切换显示
+    if (r.classList.contains('commit-row') && r.dataset.repo === repoName) {
+      r.style.display = isExpanded ? 'none' : '';
+    }
+  }
+}
+
+// 切换仓库的所有提交选中状态
+function toggleRepoCommits(repoName, checked) {
+  document.querySelectorAll(`.commit-row[data-repo="${repoName}"] .commit-checkbox`).forEach(cb => {
+    const index = parseInt(cb.dataset.index);
+    if (checked) {
+      selectedCommitIndices.add(index);
+      cb.checked = true;
+    } else {
+      selectedCommitIndices.delete(index);
+      cb.checked = false;
+    }
+  });
+  updateSelectedCount();
 }
 
 // 绑定复选框事件
@@ -1854,31 +2780,55 @@ async function viewCommitDiff(index) {
   try {
     let result;
 
-    if (connectionConfig.vcs === 'svn') {
+    if (connectionConfig.vcs === 'svn' || commit.source === 'svn') {
       // SVN 模式
       result = await window.svnAPI.getDiff({
         projectUrl: commit.projectUrl,
         revision: commit.revision,
-        username: connectionConfig.username,
-        password: connectionConfig.password
+        username: connectionConfig.svn.username,
+        password: connectionConfig.svn.password
       });
     } else {
-      // Git 模式 - 使用 fullHash (如果有) 或 revision
+      // Git 或混合模式 - 使用 fullHash (如果有) 或 revision
       const commitHash = commit.fullHash || commit.revision;
-      const gitlabMode = connectionConfig.gitlabMode;
 
-      if (gitlabMode === 'local') {
-        // 本地模式
-        result = await window.gitlabAPI.localGetDiff({
-          repoPath: connectionConfig.localRepoPath,
-          commitHash: commitHash
-        });
+      // 混合模式下根据 commit.source 判断使用哪个仓库配置
+      if (connectionConfig.vcs === 'mixed' && commit.source === 'git') {
+        // 在 git.repos 中找到对应的仓库
+        const repo = gitRepos.find(r => r.name === commit.repoName);
+        if (repo) {
+          if (repo.mode === 'local') {
+            result = await window.gitlabAPI.localGetDiff({
+              repoPath: repo.path,
+              commitHash: commitHash
+            });
+          } else {
+            result = await window.gitlabAPI.sshGetDiff({
+              repoUrl: repo.url,
+              commitHash: commitHash
+            });
+          }
+        } else {
+          result = { success: false, error: '未找到对应的 Git 仓库配置' };
+        }
       } else {
-        // SSH 模式
-        result = await window.gitlabAPI.sshGetDiff({
-          repoUrl: connectionConfig.sshRepoUrl,
-          commitHash: commitHash
-        });
+        // Git 模式 - 根据 commit.repoName 找到对应仓库配置
+        const repo = gitRepos.find(r => r.name === commit.repoName);
+        if (repo) {
+          if (repo.mode === 'local') {
+            result = await window.gitlabAPI.localGetDiff({
+              repoPath: repo.path,
+              commitHash: commitHash
+            });
+          } else {
+            result = await window.gitlabAPI.sshGetDiff({
+              repoUrl: repo.url,
+              commitHash: commitHash
+            });
+          }
+        } else {
+          result = { success: false, error: '未找到对应的 Git 仓库配置' };
+        }
       }
     }
 
@@ -2232,27 +3182,32 @@ async function reviewCommitCode(index) {
     // 获取 diff 数据
     let diffResult;
 
-    if (connectionConfig.vcs === 'svn') {
+    if (connectionConfig.vcs === 'svn' || commit.source === 'svn') {
       diffResult = await window.svnAPI.getDiff({
         projectUrl: commit.projectUrl,
         revision: commit.revision,
-        username: connectionConfig.username,
-        password: connectionConfig.password
+        username: connectionConfig.svn.username,
+        password: connectionConfig.svn.password
       });
     } else {
       const commitHash = commit.fullHash || commit.revision;
-      const gitlabMode = connectionConfig.gitlabMode;
 
-      if (gitlabMode === 'local') {
-        diffResult = await window.gitlabAPI.localGetDiff({
-          repoPath: connectionConfig.localRepoPath,
-          commitHash: commitHash
-        });
+      // 混合模式或 Git 模式：通过 repoName 找到对应仓库
+      const repo = gitRepos.find(r => r.name === commit.repoName);
+      if (repo) {
+        if (repo.mode === 'local') {
+          diffResult = await window.gitlabAPI.localGetDiff({
+            repoPath: repo.path,
+            commitHash: commitHash
+          });
+        } else {
+          diffResult = await window.gitlabAPI.sshGetDiff({
+            repoUrl: repo.url,
+            commitHash: commitHash
+          });
+        }
       } else {
-        diffResult = await window.gitlabAPI.sshGetDiff({
-          repoUrl: connectionConfig.sshRepoUrl,
-          commitHash: commitHash
-        });
+        diffResult = { success: false, error: '未找到对应的 Git 仓库配置' };
       }
     }
 
@@ -2337,31 +3292,55 @@ async function viewCommitDiff(index) {
   try {
     let result;
 
-    if (connectionConfig.vcs === 'svn') {
+    if (connectionConfig.vcs === 'svn' || commit.source === 'svn') {
       // SVN 模式
       result = await window.svnAPI.getDiff({
         projectUrl: commit.projectUrl,
         revision: commit.revision,
-        username: connectionConfig.username,
-        password: connectionConfig.password
+        username: connectionConfig.svn.username,
+        password: connectionConfig.svn.password
       });
     } else {
-      // Git 模式 - 使用 fullHash (如果有) 或 revision
+      // Git 或混合模式 - 使用 fullHash (如果有) 或 revision
       const commitHash = commit.fullHash || commit.revision;
-      const gitlabMode = connectionConfig.gitlabMode;
 
-      if (gitlabMode === 'local') {
-        // 本地模式
-        result = await window.gitlabAPI.localGetDiff({
-          repoPath: connectionConfig.localRepoPath,
-          commitHash: commitHash
-        });
+      // 混合模式下根据 commit.source 判断使用哪个仓库配置
+      if (connectionConfig.vcs === 'mixed' && commit.source === 'git') {
+        // 在 git.repos 中找到对应的仓库
+        const repo = gitRepos.find(r => r.name === commit.repoName);
+        if (repo) {
+          if (repo.mode === 'local') {
+            result = await window.gitlabAPI.localGetDiff({
+              repoPath: repo.path,
+              commitHash: commitHash
+            });
+          } else {
+            result = await window.gitlabAPI.sshGetDiff({
+              repoUrl: repo.url,
+              commitHash: commitHash
+            });
+          }
+        } else {
+          result = { success: false, error: '未找到对应的 Git 仓库配置' };
+        }
       } else {
-        // SSH 模式
-        result = await window.gitlabAPI.sshGetDiff({
-          repoUrl: connectionConfig.sshRepoUrl,
-          commitHash: commitHash
-        });
+        // Git 模式 - 根据 commit.repoName 找到对应仓库配置
+        const repo = gitRepos.find(r => r.name === commit.repoName);
+        if (repo) {
+          if (repo.mode === 'local') {
+            result = await window.gitlabAPI.localGetDiff({
+              repoPath: repo.path,
+              commitHash: commitHash
+            });
+          } else {
+            result = await window.gitlabAPI.sshGetDiff({
+              repoUrl: repo.url,
+              commitHash: commitHash
+            });
+          }
+        } else {
+          result = { success: false, error: '未找到对应的 Git 仓库配置' };
+        }
       }
     }
 
@@ -2482,27 +3461,31 @@ if (batchReviewBtn) {
         try {
           let diffResult;
 
-          if (connectionConfig.vcs === 'svn') {
+          if (connectionConfig.vcs === 'svn' || commit.source === 'svn') {
             diffResult = await window.svnAPI.getDiff({
               projectUrl: commit.projectUrl,
               revision: commit.revision,
-              username: connectionConfig.username,
-              password: connectionConfig.password
+              username: connectionConfig.svn.username,
+              password: connectionConfig.svn.password
             });
           } else {
             const commitHash = commit.fullHash || commit.revision;
-            const gitlabMode = connectionConfig.gitlabMode;
+            const repo = gitRepos.find(r => r.name === commit.repoName);
 
-            if (gitlabMode === 'local') {
-              diffResult = await window.gitlabAPI.localGetDiff({
-                repoPath: connectionConfig.localRepoPath,
-                commitHash: commitHash
-              });
+            if (repo) {
+              if (repo.mode === 'local') {
+                diffResult = await window.gitlabAPI.localGetDiff({
+                  repoPath: repo.path,
+                  commitHash: commitHash
+                });
+              } else {
+                diffResult = await window.gitlabAPI.sshGetDiff({
+                  repoUrl: repo.url,
+                  commitHash: commitHash
+                });
+              }
             } else {
-              diffResult = await window.gitlabAPI.sshGetDiff({
-                repoUrl: connectionConfig.sshRepoUrl,
-                commitHash: commitHash
-              });
+              diffResult = { success: false, error: '未找到对应的 Git 仓库配置' };
             }
           }
 

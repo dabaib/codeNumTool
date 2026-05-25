@@ -1158,7 +1158,8 @@ ipcMain.handle('gitlab-ssh-stats', async (event, {
           net: added - deleted,
           status,
           normStatus: msgAnalysis.normStatus,
-          isDuplicate: msgAnalysis.isDuplicate
+          isDuplicate: msgAnalysis.isDuplicate,
+          branch: branchName
         });
 
         const bs = branchStats[branchName];
@@ -1469,7 +1470,8 @@ async function getLocalRepoStatsForMulti(repoPath, repoName, author, branches, y
           net: added - deleted,
           status,
           normStatus: msgAnalysis.normStatus,
-          isDuplicate: msgAnalysis.isDuplicate
+          isDuplicate: msgAnalysis.isDuplicate,
+          branch: branchName
         });
 
         const bs = branchStats[branchName];
@@ -1665,7 +1667,8 @@ async function getSshRepoStatsForMulti(repoUrl, repoName, author, branches, year
           net: added - deleted,
           status,
           normStatus: msgAnalysis.normStatus,
-          isDuplicate: msgAnalysis.isDuplicate
+          isDuplicate: msgAnalysis.isDuplicate,
+          branch: branchName
         });
 
         const bs = branchStats[branchName];
@@ -2658,6 +2661,7 @@ async function getGitMultiReposStats(repos, author, year, month, threshold, form
         for (const commit of result.data.commits) {
           commit.source = 'git';
           commit.project = `[Git] ${repo.repoName || repo.repoUrl}`;
+          commit.repoName = repo.repoName || repo.repoUrl; // 用于前端树形展示
           allCommits.push(commit);
         }
 
@@ -2673,15 +2677,18 @@ async function getGitMultiReposStats(repos, author, year, month, threshold, form
 
         // 合并分支统计
         for (const [branch, stats] of Object.entries(result.data.branchStats || {})) {
-          if (!branchStats[branch]) {
-            branchStats[branch] = {
+          const branchKey = `${repo.repoName || repo.repoUrl}/${branch}`;
+          if (!branchStats[branchKey]) {
+            branchStats[branchKey] = {
+              repoName: repo.repoName || repo.repoUrl,
+              branchName: branch,
               totalAdded: 0, totalDeleted: 0, totalCommits: 0,
               overThresholdCount: 0, formatCodeCount: 0,
               featCount: 0, fixCount: 0, otherCount: 0,
               dailyStats: {}
             };
           }
-          const bs = branchStats[branch];
+          const bs = branchStats[branchKey];
           bs.totalAdded += stats.totalAdded;
           bs.totalDeleted += stats.totalDeleted;
           bs.totalCommits += stats.totalCommits;
@@ -2849,7 +2856,8 @@ async function getLocalStats(repoPath, branches, author, startD, endD, threshold
           net: added - deleted,
           status,
           normStatus: msgAnalysis.normStatus,
-          isDuplicate: msgAnalysis.isDuplicate
+          isDuplicate: msgAnalysis.isDuplicate,
+          branch: branchName
         });
 
         const bs = branchStats[branchName];
@@ -3041,7 +3049,8 @@ async function getSshStats(repoUrl, branches, author, startD, endD, threshold, f
           net: added - deleted,
           status,
           normStatus: msgAnalysis.normStatus,
-          isDuplicate: msgAnalysis.isDuplicate
+          isDuplicate: msgAnalysis.isDuplicate,
+          branch: branchName
         });
 
         const bs = branchStats[branchName];
@@ -3198,7 +3207,8 @@ async function getGitLabApiStats(gitlabUrl, token, projectId, projectName, branc
           net: added - deleted,
           status,
           normStatus: msgAnalysis.normStatus,
-          isDuplicate: msgAnalysis.isDuplicate
+          isDuplicate: msgAnalysis.isDuplicate,
+          branch: branchName
         });
 
         const bs = branchStats[branchName];
