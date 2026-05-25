@@ -5,7 +5,9 @@
       "Bash(npm config set electron_mirror https://npmmirror.com/mirrors/electron/)",
       "Bash(npm install echarts)",
       "Bash(npm start)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(node node_modules/electron/cli.js --version)",
+      "Bash(node_modules/.bin/electron.cmd .)"
     ]
   }
 }
