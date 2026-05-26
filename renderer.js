@@ -975,6 +975,7 @@ loginBtn.addEventListener('click', async () => {
           document.getElementById('svnAuthorGroup').classList.remove('hidden');
           // SVN 提交者输入显示
           document.getElementById('svnAuthorInputs').classList.remove('hidden');
+          document.getElementById('svnAuthor').value = connectionConfig.svn.username || '';
           // Git 区块隐藏
           document.getElementById('gitAuthorGroup').classList.add('hidden');
           document.getElementById('gitAuthorRow').classList.add('hidden');
@@ -1068,7 +1069,13 @@ changeConnBtn.addEventListener('click', () => {
 
 // 查询按钮点击事件
 queryBtn.addEventListener('click', async () => {
-  const author = authorInput.value.trim();
+  let author;
+  if (connectionConfig.vcs === 'svn') {
+    author = document.getElementById('svnAuthor').value.trim();
+  } else {
+    author = authorInput.value.trim();
+  }
+  console.log('[DEBUG] queryBtn click - vcs:', connectionConfig.vcs, 'author:', author);
 
   let year, month;
   let startDateStr = '';
@@ -1383,6 +1390,10 @@ function updateCharts() {
       } else if (isGit) {
         // Git 模式：直接使用 selectedGroup 作为 branchKey 查找
         statsSource = isGit ? queryResult.branchStats : queryResult.projectStats;
+        groupStats = statsSource ? statsSource[selectedGroup] : null;
+      } else {
+        // SVN 模式：直接使用 selectedGroup 作为 projectKey 查找
+        statsSource = queryResult.projectStats;
         groupStats = statsSource ? statsSource[selectedGroup] : null;
       }
     }
