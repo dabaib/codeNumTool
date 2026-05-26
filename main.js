@@ -901,7 +901,9 @@ ipcMain.handle('gitlab-api-stats', async (event, {
           allCommits.push({
             project: branch,
             projectUrl: `${baseUrl}/${projectName}`,
+            repoName: projectName,
             revision: commit.short_id,
+            fullHash: commit.id,
             date: commit.created_at,
             author: commit.author_name,
             message: commit.title,
@@ -911,7 +913,8 @@ ipcMain.handle('gitlab-api-stats', async (event, {
             net: added - deleted,
             status,
             normStatus: msgAnalysis.normStatus,
-            isDuplicate: msgAnalysis.isDuplicate
+            isDuplicate: msgAnalysis.isDuplicate,
+            branch: branch
           });
 
           // 更新分支统计
@@ -1147,6 +1150,7 @@ ipcMain.handle('gitlab-ssh-stats', async (event, {
         allCommits.push({
           project: branchName,
           projectUrl: repoUrl,
+          repoName: repoName,
           revision: hash.substring(0, 7),
           fullHash: hash,
           date,
@@ -1343,11 +1347,30 @@ ipcMain.handle('git-multi-stats', async (event, config) => {
     // 按日期排序所有提交
     allCommits.sort((a, b) => new Date(b.date) - new Date(a.date));
 
+    // 构建 branchStats（用于前端渲染，与 repoBranchStats 结构不同）
+    const branchStats = {};
+    for (const [repoId, repoData] of Object.entries(repoBranchStats)) {
+      for (const [branchName, branchData] of Object.entries(repoData.branches || {})) {
+        const branchKey = `${repoData.name}/${branchName}`;
+        branchStats[branchKey] = {
+          repoName: repoData.name,
+          branchName: branchName,
+          totalAdded: branchData.totalAdded,
+          totalDeleted: branchData.totalDeleted,
+          totalCommits: branchData.totalCommits,
+          overThresholdCount: branchData.overThresholdCount,
+          formatCodeCount: branchData.formatCodeCount,
+          dailyStats: branchData.dailyStats || {}
+        };
+      }
+    }
+
     return {
       success: true,
       data: {
         commits: allCommits,
         repoBranchStats,
+        branchStats,
         totalCommits,
         totalAdded,
         totalDeleted,
@@ -1459,6 +1482,7 @@ async function getLocalRepoStatsForMulti(repoPath, repoName, author, branches, y
         allCommits.push({
           project: branchName,
           projectUrl: repoPath,
+          repoName: repoName,
           revision: hash.substring(0, 7),
           fullHash: hash,
           date,
@@ -1656,6 +1680,7 @@ async function getSshRepoStatsForMulti(repoUrl, repoName, author, branches, year
         allCommits.push({
           project: branchName,
           projectUrl: repoUrl,
+          repoName: repoName,
           revision: hash.substring(0, 7),
           fullHash: hash,
           date,
@@ -2164,6 +2189,7 @@ ipcMain.handle('gitlab-local-stats', async (event, {
           allCommits.push({
             project: branchName,
             projectUrl: repoPath,
+            repoName: repoName,
             revision: hash.substring(0, 7),
             fullHash: hash,
             date,
@@ -2175,7 +2201,8 @@ ipcMain.handle('gitlab-local-stats', async (event, {
             net: added - deleted,
             status,
             normStatus: msgAnalysis.normStatus,
-            isDuplicate: msgAnalysis.isDuplicate
+            isDuplicate: msgAnalysis.isDuplicate,
+            branch: branchName
           });
 
           // 更新分支统计
@@ -2647,10 +2674,10 @@ async function getGitMultiReposStats(repos, author, year, month, threshold, form
       let result;
       if (repo.type === 'local') {
         // 本地仓库模式
-        result = await getLocalStats(repo.repoPath, repo.branches, author, startD, endD, threshold, formatThreshold);
+        result = await getLocalStats(repo.repoPath, repo.repoName, repo.branches, author, startD, endD, threshold, formatThreshold);
       } else if (repo.type === 'ssh') {
         // SSH 远程模式
-        result = await getSshStats(repo.repoUrl, repo.branches, author, startD, endD, threshold, formatThreshold);
+        result = await getSshStats(repo.repoUrl, repo.repoName, repo.branches, author, startD, endD, threshold, formatThreshold);
       } else if (repo.type === 'api') {
         // GitLab API 模式
         result = await getGitLabApiStats(repo.gitlabUrl, repo.token, repo.projectId, repo.projectName, repo.branches, author, startDate || startD, endDate || endD, threshold, formatThreshold);
@@ -2752,7 +2779,7 @@ async function getGitMultiReposStats(repos, author, year, month, threshold, form
 }
 
 // 本地仓库统计（抽取为独立函数）
-async function getLocalStats(repoPath, branches, author, startD, endD, threshold, formatThreshold) {
+async function getLocalStats(repoPath, repoName, branches, author, startD, endD, threshold, formatThreshold) {
   const allCommits = [];
   const branchStats = {};
   const activeDaysSet = new Set();
@@ -2845,6 +2872,7 @@ async function getLocalStats(repoPath, branches, author, startD, endD, threshold
         allCommits.push({
           project: branchName,
           projectUrl: repoPath,
+          repoName: repoName,
           revision: hash.substring(0, 7),
           fullHash: hash,
           date,
@@ -2929,7 +2957,7 @@ async function getLocalStats(repoPath, branches, author, startD, endD, threshold
 }
 
 // SSH 远程仓库统计（抽取为独立函数）
-async function getSshStats(repoUrl, branches, author, startD, endD, threshold, formatThreshold) {
+async function getSshStats(repoUrl, repoName, branches, author, startD, endD, threshold, formatThreshold) {
   const allCommits = [];
   const branchStats = {};
   const activeDaysSet = new Set();
@@ -3038,6 +3066,7 @@ async function getSshStats(repoUrl, branches, author, startD, endD, threshold, f
         allCommits.push({
           project: branchName,
           projectUrl: repoUrl,
+          repoName: repoName,
           revision: hash.substring(0, 7),
           fullHash: hash,
           date,
@@ -3196,6 +3225,7 @@ async function getGitLabApiStats(gitlabUrl, token, projectId, projectName, branc
         allCommits.push({
           project: branchName,
           projectUrl: `${gitlabUrl}/project/${projectId}`,
+          repoName: projectName,
           revision: commit.id.substring(0, 7),
           fullHash: commit.id,
           date: commit.created_at,

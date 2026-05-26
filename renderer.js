@@ -1335,88 +1335,55 @@ function updateCharts() {
     if (selectedGroup !== 'all') {
       // 单模式：使用原有逻辑
       if (isMixed) {
-        // 混合模式根据 selectedGroup 的前缀判断使用哪个统计源
+        // 混合模式根据 selectedGroup 判断使用哪个统计源
         if (selectedGroup.startsWith('[SVN] ')) {
+          // SVN 项目：直接查找 projectStats
           statsSource = queryResult.projectStats;
           groupStats = statsSource ? statsSource[selectedGroup.replace('[SVN] ', '')] : null;
-        } else if (selectedGroup.startsWith('[Git] ')) {
-          const repoName = selectedGroup.replace('[Git] ', '');
-          // 收集该仓库所有分支的数据并合并
-          const mergedDailyStats = {};
-          const mergedCommitTypeStats = {};
-          for (const [branchKey, branchData] of Object.entries(queryResult.branchStats || {})) {
-            if (branchData.repoName === repoName) {
-              // 合并 dailyStats
-              for (const [date, dayStats] of Object.entries(branchData.dailyStats || {})) {
-                if (!mergedDailyStats[date]) {
-                  mergedDailyStats[date] = { added: 0, deleted: 0, commits: 0 };
-                }
-                mergedDailyStats[date].added += dayStats.added;
-                mergedDailyStats[date].deleted += dayStats.deleted;
-                mergedDailyStats[date].commits += dayStats.commits;
-              }
-            }
+        } else if (selectedGroup.includes('/')) {
+          // Git 分支级别 tab：格式为 "repoName/branchName"，直接查找 branchStats
+          const branchKey = selectedGroup;
+          groupStats = queryResult.branchStats ? queryResult.branchStats[branchKey] : null;
+          if (!groupStats) {
+            renderLineChart([]);
+            renderBarChart([]);
+            renderPieChart({});
+            return;
           }
           // 构建 chartData
-          chartData = Object.keys(mergedDailyStats).sort().map(date => ({
-            date,
-            added: mergedDailyStats[date].added,
-            deleted: mergedDailyStats[date].deleted,
-            commits: mergedDailyStats[date].commits
-          }));
-          // commitTypeStats 通过遍历 commits 计算
+          const allDates = Object.keys(groupStats.dailyStats || {}).sort();
+          for (const dateStr of allDates) {
+            const dayStats = groupStats.dailyStats[dateStr];
+            chartData.push({
+              date: dateStr,
+              added: dayStats.added,
+              deleted: dayStats.deleted,
+              commits: dayStats.commits
+            });
+          }
+          // 构建 commitTypeStats
           commitTypeStats = {};
+          // selectedGroup 格式为 "repoName/branchName"，其中 branchName 可能包含斜杠
+          const slashIndex = selectedGroup.indexOf('/');
+          const repoName = slashIndex > 0 ? selectedGroup.substring(0, slashIndex) : selectedGroup;
+          const branchName = slashIndex > 0 ? selectedGroup.substring(slashIndex + 1) : '';
           for (const commit of queryResult.commits) {
-            if (commit.repoName === repoName) {
+            if (commit.repoName === repoName && commit.branch === branchName) {
               const type = commit.commitType || 'other';
               commitTypeStats[type] = (commitTypeStats[type] || 0) + 1;
             }
           }
-        }
-      } else {
-        // Git 模式：检查是否是仓库级别的 tab（通过查找是否有对应的 repoName）
-        statsSource = isGit ? queryResult.branchStats : queryResult.projectStats;
-        const repoName = selectedGroup;
-        // 检查是否有以该 repoName 开头的 branchKey
-        let hasRepoLevelTab = false;
-        for (const key of Object.keys(statsSource || {})) {
-          const stats = statsSource[key];
-          if (stats.repoName === repoName) {
-            hasRepoLevelTab = true;
-            break;
-          }
-        }
-        if (hasRepoLevelTab) {
-          // 收集该仓库所有分支的数据并合并
-          const mergedDailyStats = {};
-          for (const [branchKey, branchData] of Object.entries(statsSource || {})) {
-            if (branchData.repoName === repoName) {
-              for (const [date, dayStats] of Object.entries(branchData.dailyStats || {})) {
-                if (!mergedDailyStats[date]) {
-                  mergedDailyStats[date] = { added: 0, deleted: 0, commits: 0 };
-                }
-                mergedDailyStats[date].added += dayStats.added;
-                mergedDailyStats[date].deleted += dayStats.deleted;
-                mergedDailyStats[date].commits += dayStats.commits;
-              }
-            }
-          }
-          chartData = Object.keys(mergedDailyStats).sort().map(date => ({
-            date,
-            added: mergedDailyStats[date].added,
-            deleted: mergedDailyStats[date].deleted,
-            commits: mergedDailyStats[date].commits
-          }));
-          commitTypeStats = {};
-          for (const commit of queryResult.commits) {
-            if (commit.repoName === repoName) {
-              const type = commit.commitType || 'other';
-              commitTypeStats[type] = (commitTypeStats[type] || 0) + 1;
-            }
-          }
+          renderLineChart(chartData);
+          renderBarChart(chartData);
+          renderPieChart(commitTypeStats);
+          return;
         } else {
-          groupStats = statsSource ? statsSource[selectedGroup] : null;
+          groupStats = null;
         }
+      } else if (isGit) {
+        // Git 模式：直接使用 selectedGroup 作为 branchKey 查找
+        statsSource = isGit ? queryResult.branchStats : queryResult.projectStats;
+        groupStats = statsSource ? statsSource[selectedGroup] : null;
       }
     }
 
@@ -1430,7 +1397,15 @@ function updateCharts() {
       return;
     }
 
-    if (!groupStats) return;
+    if (!groupStats) {
+      // 即使没有数据也要渲染空图表
+      renderLineChart([]);
+      renderBarChart([]);
+      renderPieChart({});
+      return;
+    }
+
+    // 重构 chartData：从 groupStats.dailyStats 构建
 
     // 重构 chartData：从 groupStats.dailyStats 构建
     const allDates = Object.keys(groupStats.dailyStats || {}).sort();
@@ -1452,6 +1427,12 @@ function updateCharts() {
         if (selectedGroup.startsWith('[SVN] ')) {
           const name = selectedGroup.replace('[SVN] ', '');
           if (commit.project !== name) continue;
+        } else if (selectedGroup.includes('/')) {
+          // 使用第一个斜杠分割仓库名和分支名
+          const slashIdx = selectedGroup.indexOf('/');
+          const repoName = selectedGroup.substring(0, slashIdx);
+          const branchName = selectedGroup.substring(slashIdx + 1);
+          if (commit.repoName !== repoName || commit.branch !== branchName) continue;
         } else if (selectedGroup.startsWith('[Git] ')) {
           const name = selectedGroup.replace('[Git] ', '');
           if (commit.repoName !== name) continue;
@@ -1459,7 +1440,11 @@ function updateCharts() {
           continue;
         }
       } else if (isGitMode) {
-        if (commit.repoName !== selectedGroup) continue;
+        // Git 模式 selectedGroup 格式为 "repoName/branchName"，branchName 可能包含斜杠
+        const slashIdx = selectedGroup.indexOf('/');
+        const repoName = selectedGroup.substring(0, slashIdx);
+        const branchName = selectedGroup.substring(slashIdx + 1);
+        if (commit.repoName !== repoName || commit.branch !== branchName) continue;
       } else {
         if (commit.project !== selectedGroup) continue;
       }
@@ -1494,27 +1479,26 @@ function renderGroupingTabs() {
 
   let html = `<button class="project-tab ${selectedGroup === 'all' ? 'active' : ''}" data-group="all">${allText}</button>`;
 
-  // Git 模式：使用 branchStats
+  // Git 模式：使用 branchStats，显示每个分支的 tab
   if (isGit) {
-    Object.keys(gitStatsSource || {}).forEach(name => {
-      html += `<button class="project-tab ${selectedGroup === name ? 'active' : ''}" data-group="${name}">${name}</button>`;
+    Object.keys(gitStatsSource || {}).forEach(key => {
+      const stats = gitStatsSource[key];
+      // tab 显示格式：仓库名/分支名
+      const tabName = `${stats.repoName}/${stats.branchName}`;
+      html += `<button class="project-tab ${selectedGroup === tabName ? 'active' : ''}" data-group="${tabName}">${tabName}</button>`;
     });
   } else if (isMixed) {
-    // 混合模式：先显示 SVN 项目，再显示 Git 仓库
+    // 混合模式：先显示 SVN 项目，再显示 Git 仓库分支
     // SVN 项目：使用 projectStats 的 key（包含 [SVN] 前缀）
     Object.keys(svnStatsSource || {}).forEach(name => {
       const tabName = `[SVN] ${name}`;
       html += `<button class="project-tab ${selectedGroup === tabName ? 'active' : ''}" data-group="${tabName}">${tabName}</button>`;
     });
-    // Git 仓库：使用 branchStats 的 repoName（去重）
-    const gitReposSeen = new Set();
+    // Git 分支：使用 branchStats，显示每个分支 tab，格式为 "repoName/branchName"
     Object.keys(gitStatsSource || {}).forEach(key => {
       const stats = gitStatsSource[key];
-      const repoName = stats.repoName || key.split('/')[0];
-      if (gitReposSeen.has(repoName)) return;
-      gitReposSeen.add(repoName);
-      const tabName = `[Git] ${repoName}`;
-      html += `<button class="project-tab ${selectedGroup === tabName ? 'active' : ''}" data-group="${tabName}">${tabName}</button>`;
+      const tabName = `${stats.repoName}/${stats.branchName}`;
+      html += `<button class="project-tab ${selectedGroup === tabName ? 'active' : ''}" data-group="${tabName}">[Git] ${tabName}</button>`;
     });
   } else {
     // SVN 模式：优先使用 connectionConfig.svn.projects 显示所有项目
@@ -1741,59 +1725,17 @@ function updateStats() {
         statsSource = queryResult.projectStats;
         groupStats = statsSource ? statsSource[lookupKey] : null;
         isRepoLevelTab = false;
-      } else if (selectedGroup.startsWith('[Git] ')) {
-        lookupKey = selectedGroup.replace('[Git] ', '');
-        // 检查是否是仓库级别的 tab
+      } else if (selectedGroup.includes('/')) {
+        // Git 分支级别 tab：格式为 "repoName/branchName"，直接查找 branchStats
+        const branchKey = selectedGroup;
+        groupStats = queryResult.branchStats ? queryResult.branchStats[branchKey] : null;
         isRepoLevelTab = false;
-        for (const key of Object.keys(queryResult.branchStats || {})) {
-          const stats = queryResult.branchStats[key];
-          if (stats.repoName === lookupKey) {
-            isRepoLevelTab = true;
-            break;
-          }
-        }
-        if (isRepoLevelTab) {
-          // 收集该仓库所有分支的数据并合并
-          let aggregatedStats = null;
-          for (const [branchKey, branchData] of Object.entries(queryResult.branchStats || {})) {
-            if (branchData.repoName === lookupKey) {
-              if (!aggregatedStats) {
-                aggregatedStats = {
-                  totalCommits: 0,
-                  totalAdded: 0,
-                  totalDeleted: 0,
-                  overThresholdCount: 0,
-                  formatCodeCount: 0
-                };
-              }
-              aggregatedStats.totalCommits += branchData.totalCommits;
-              aggregatedStats.totalAdded += branchData.totalAdded;
-              aggregatedStats.totalDeleted += branchData.totalDeleted;
-              aggregatedStats.overThresholdCount += branchData.overThresholdCount;
-              aggregatedStats.formatCodeCount += branchData.formatCodeCount;
-            }
-          }
-          groupStats = aggregatedStats;
-        } else {
-          groupStats = queryResult.branchStats ? queryResult.branchStats[selectedGroup] : null;
-        }
-      }
-    } else if (isGit) {
-      // 纯 Git 模式
-      // 检查是否是仓库级别的 tab
-      isRepoLevelTab = false;
-      for (const key of Object.keys(queryResult.branchStats || {})) {
-        const stats = queryResult.branchStats[key];
-        if (stats.repoName === selectedGroup) {
-          isRepoLevelTab = true;
-          break;
-        }
-      }
-      if (isRepoLevelTab) {
-        // 收集该仓库所有分支的数据并合并
+      } else if (selectedGroup.startsWith('[Git] ')) {
+        // Git 仓库级别 tab（遗留格式）：收集该仓库所有分支的数据并合并
+        lookupKey = selectedGroup.replace('[Git] ', '');
         let aggregatedStats = null;
         for (const [branchKey, branchData] of Object.entries(queryResult.branchStats || {})) {
-          if (branchData.repoName === selectedGroup) {
+          if (branchData.repoName === lookupKey) {
             if (!aggregatedStats) {
               aggregatedStats = {
                 totalCommits: 0,
@@ -1811,9 +1753,11 @@ function updateStats() {
           }
         }
         groupStats = aggregatedStats;
-      } else {
-        groupStats = statsSource ? statsSource[selectedGroup] : null;
+        isRepoLevelTab = true;
       }
+    } else if (isGit) {
+      // 纯 Git 模式：直接使用 selectedGroup 作为 branchKey 查找
+      groupStats = statsSource ? statsSource[selectedGroup] : null;
     } else {
       // SVN 模式
       groupStats = statsSource ? statsSource[lookupKey] : null;
@@ -2063,31 +2007,28 @@ function applyFilter() {
 
   // 按分组（项目或仓库）筛选
   if (selectedGroup !== 'all') {
-    // Git模式下使用 repoName 筛选，SVN模式下使用 project
     commits = commits.filter(c => {
       if (connectionConfig.vcs === 'git') {
-        // 检查是否是仓库级别的 tab
-        const isRepoLevelTab = (() => {
-          for (const key of Object.keys(queryResult.branchStats || {})) {
-            const stats = queryResult.branchStats[key];
-            if (stats.repoName === selectedGroup) return true;
-          }
-          return false;
-        })();
-        if (isRepoLevelTab) {
-          return c.repoName === selectedGroup;
-        } else {
-          // 分支级别 tab，使用 project 或完整的 key 匹配
-          return c.project === selectedGroup || c.project.endsWith('/' + selectedGroup);
-        }
+        // selectedGroup 格式为 "repoName/branchName"，branchName 可能包含斜杠
+        const slashIdx = selectedGroup.indexOf('/');
+        const repoName = selectedGroup.substring(0, slashIdx);
+        const branchName = selectedGroup.substring(slashIdx + 1);
+        return c.repoName === repoName && c.branch === branchName;
       } else if (connectionConfig.vcs === 'svn') {
         return c.project === selectedGroup;
       } else if (connectionConfig.vcs === 'mixed') {
-        // 混合模式根据前缀判断
+        // 混合模式根据 selectedGroup 格式判断
         if (selectedGroup.startsWith('[SVN] ')) {
           const name = selectedGroup.replace('[SVN] ', '');
           return c.project === name;
+        } else if (selectedGroup.includes('/')) {
+          // Git 分支级别 tab：格式为 "repoName/branchName"，branchName 可能包含斜杠
+          const slashIdx = selectedGroup.indexOf('/');
+          const repoName = selectedGroup.substring(0, slashIdx);
+          const branchName = selectedGroup.substring(slashIdx + 1);
+          return c.repoName === repoName && c.branch === branchName;
         } else if (selectedGroup.startsWith('[Git] ')) {
+          // Git 仓库级别 tab（遗留格式）
           const name = selectedGroup.replace('[Git] ', '');
           return c.repoName === name;
         }
