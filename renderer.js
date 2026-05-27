@@ -103,8 +103,19 @@ document.addEventListener('DOMContentLoaded', () => {
       addGitRepoCard();
     });
   }
-  // 默认添加一个空卡片
-  addGitRepoCard();
+  // 如果没有缓存的仓库，才添加一个空卡片
+  // loadCachedConfig() 已经在脚本加载时执行并恢复了 gitRepos
+  console.log('[DEBUG] DOMContentLoaded - gitRepos.length:', gitRepos.length, JSON.stringify(gitRepos.map(r => ({id: r.id, name: r.name, mode: r.mode}))));
+  if (gitRepos.length === 0) {
+    console.log('[DEBUG] DOMContentLoaded - adding new empty card');
+    addGitRepoCard();
+  } else {
+    console.log('[DEBUG] DOMContentLoaded - gitRepos has data, NOT adding new card');
+  }
+  // 渲染已缓存的仓库卡片
+  console.log('[DEBUG] DOMContentLoaded - calling renderGitRepoCards');
+  renderGitRepoCards();
+  console.log('[DEBUG] DOMContentLoaded - done, container children:', document.getElementById('gitReposContainer')?.children.length);
 });
 
 function addGitRepoCard() {
@@ -352,16 +363,22 @@ function updateRepoSelectedBranch(repoId, branch, checked) {
 // 渲染 SVN 项目选择器（SVN 和混合模式下显示）
 function renderSvnProjectSelect() {
   const container = document.getElementById('svnProjectSelect');
+  console.log('[DEBUG] renderSvnProjectSelect - container:', !!container, 'vcs:', connectionConfig.vcs, 'projects:', connectionConfig.svn?.projects?.length);
   if (!container) return;
 
   // 只有 SVN 模式或混合模式且有项目时才显示
   if ((connectionConfig.vcs !== 'svn' && connectionConfig.vcs !== 'mixed') ||
       !connectionConfig.svn.projects || connectionConfig.svn.projects.length === 0) {
+    console.log('[DEBUG] renderSvnProjectSelect - hidden because:', {
+      vcsNotSvnOrMixed: connectionConfig.vcs !== 'svn' && connectionConfig.vcs !== 'mixed',
+      noProjects: !connectionConfig.svn.projects || connectionConfig.svn.projects.length === 0
+    });
     container.classList.add('hidden');
     return;
   }
 
   container.classList.remove('hidden');
+  console.log('[DEBUG] renderSvnProjectSelect - rendering', connectionConfig.svn.projects.length, 'projects');
   // SVN 项目默认全部选中
   container.innerHTML = connectionConfig.svn.projects.map(project => `
     <label class="branch-checkbox-label">
@@ -429,6 +446,39 @@ function loadCachedConfig() {
       const config = JSON.parse(cachedConfig);
       // 合并到 connectionConfig
       Object.assign(connectionConfig, config);
+
+      // 如果有 SVN 项目缓存，渲染到登录页的项目列表
+      if (connectionConfig.svn.projects && connectionConfig.svn.projects.length > 0) {
+        // 清空现有项目行（保留第一行）
+        while (projectList.children.length > 1) {
+          projectList.removeChild(projectList.lastChild);
+        }
+        // 填充第一个项目行的数据
+        const firstRow = projectList.querySelector('.project-row');
+        if (firstRow) {
+          const firstProject = connectionConfig.svn.projects[0];
+          firstRow.querySelector('.project-name').value = firstProject.name || '';
+          firstRow.querySelector('.project-url').value = firstProject.url || '';
+        }
+        // 添加额外的项目行
+        for (let i = 1; i < connectionConfig.svn.projects.length; i++) {
+          const project = connectionConfig.svn.projects[i];
+          addProjectRow();
+          const rows = projectList.querySelectorAll('.project-row');
+          const lastRow = rows[rows.length - 1];
+          lastRow.querySelector('.project-name').value = project.name || '';
+          lastRow.querySelector('.project-url').value = project.url || '';
+        }
+
+        // 恢复 SVN 用户名和密码
+        if (connectionConfig.svn.username) {
+          const usernameInput = document.getElementById('username');
+          const passwordInput = document.getElementById('password');
+          if (usernameInput) usernameInput.value = connectionConfig.svn.username;
+          if (passwordInput) passwordInput.value = connectionConfig.svn.password || '';
+        }
+      }
+
       // 设置缓存勾选状态
       const cacheCheckbox = document.getElementById('cacheConfig');
       if (cacheCheckbox) cacheCheckbox.checked = true;
@@ -438,12 +488,14 @@ function loadCachedConfig() {
       if (cachedGitRepos) {
         try {
           gitRepos = JSON.parse(cachedGitRepos);
+          console.log('[DEBUG] loadCachedConfig - gitRepos from storage:', JSON.stringify(gitRepos, null, 2));
           // 恢复 selectedBranches 为 Set
           gitRepos.forEach(repo => {
             if (repo.selectedBranches && Array.isArray(repo.selectedBranches)) {
               repo.selectedBranches = new Set(repo.selectedBranches);
             }
           });
+          console.log('[DEBUG] loadCachedConfig - gitRepos after parse:', gitRepos.length, gitRepos.map(r => ({id: r.id, name: r.name, mode: r.mode})));
         } catch (e) {
           console.error('加载缓存 Git 仓库失败:', e);
         }
@@ -465,6 +517,8 @@ function initVcsDisplay() {
     svnAuthConfig.classList.remove('hidden');
     svnProjectConfig.classList.remove('hidden');
     gitlabProjectConfig.classList.add('hidden');
+    // 渲染 SVN 项目选择器（从缓存恢复）
+    renderSvnProjectSelect();
   } else if (vcs === 'git') {
     vcsToggleButtons.forEach(btn => btn.classList.remove('active'));
     document.querySelector('.vcs-btn[data-vcs="git"]').classList.add('active');
@@ -477,6 +531,8 @@ function initVcsDisplay() {
     svnAuthConfig.classList.remove('hidden');
     svnProjectConfig.classList.remove('hidden');
     gitlabProjectConfig.classList.remove('hidden');
+    // 渲染 SVN 项目选择器（从缓存恢复）
+    renderSvnProjectSelect();
   }
 }
 
@@ -859,6 +915,7 @@ loginBtn.addEventListener('click', async () => {
         const successProjects = result.results.filter(r => r.success);
         connectionConfig.svn.projects = successProjects.map(r => ({ name: r.name, url: r.url, selected: true }));
         connectionConfig.svn.username = username;
+        connectionConfig.svn.password = password;
         showStatus(loginStatus, result.message, 'success');
         results.svn = { success: true, message: result.message };
       } else {
