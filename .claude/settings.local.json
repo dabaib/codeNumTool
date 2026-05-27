@@ -7,7 +7,11 @@
       "Bash(npm start)",
       "Bash(git add:*)",
       "Bash(node node_modules/electron/cli.js --version)",
-      "Bash(node_modules/.bin/electron.cmd .)"
+      "Bash(node_modules/.bin/electron.cmd .)",
+      "Bash(\"C:/Program Files/Git/cmd/git.exe\" -C \"d:/AI/codeNumTool\" log --oneline -3)",
+      "Bash(\"C:/Program Files/Git/cmd/git.exe\" -C \"d:/AI/codeNumTool\" add renderer.js)",
+      "Bash('C:/Program Files/Git/cmd/git.exe' -C d:/AI/codeNumTool commit -m ' *)",
+      "Bash('C:/Program Files/Git/cmd/git.exe' -C d:/AI/codeNumTool commit -m 'fix: 修复Git多仓库模式下分支切换后提交类型和明细为空的问题 *)"
     ]
   }
 }

@@ -73,3 +73,5 @@ coverage/
 *.tgz
 .eslintcache
 .cache/
+.history
+.claude/settings.local.json
