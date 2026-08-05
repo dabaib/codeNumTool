@@ -45,7 +45,7 @@ npm run build
   - SVN 命令通过 `svn` CLI 和 GBK 编码转换（Windows）
   - Git 命令通过 `git` CLI 进行本地/SSH 仓库扫描
   - GitLab API 请求通过原生 `http`/`https` 模块
-  - IPC handlers: `svn-login`, `svn-stats`, `gitlab-login`, `gitlab-stats`, `gitlab-api-*`, `gitlab-local-stats`, `test-ssh-connection`, `gitlab-ssh-stats`, `code-review`, `batch-code-review`
+  - IPC handlers: `svn-login`, `svn-stats`, `gitlab-login`, `gitlab-stats`, `gitlab-api-*`, `gitlab-local-stats`, `test-ssh-connection`, `gitlab-ssh-stats`, `code-review`, `batch-code-review`, `export-save-report`
   - Prompt 组装: `getCodeReviewPrompt(dimensions)` / `getBatchCodeReviewPrompt(dimensions)` 根据选中的维度键动态构建 prompt
 
 - **预加载脚本** (`preload.js`): 通过 context bridge 向渲染进程暴露 `window.svnAPI`、`window.gitlabAPI` 和 `window.codeReviewAPI`
@@ -196,6 +196,7 @@ SVN 和 Git 仓库混合查询，并行执行后合并结果：
 | `multi-stats` | 混合 SVN+Git 多仓库统计 |
 | `code-review` | 发送 diff 到 LLM API 进行代码审查（接受 `dimensions[]` 控制 prompt）|
 | `batch-code-review` | 发送多个提交到 LLM API 进行批量代码审查（接受 `dimensions[]`）|
+| `export-save-report` | 导出统计报告（HTML 直接写文件，PDF 用隐藏窗口 printToPDF 生成）|
 
 ### Query Modes
 
@@ -213,6 +214,19 @@ SVN 和 Git 仓库混合查询，并行执行后合并结果：
 - `renderMonthDropdown()` / `updateMonthDisplay()`: 月份选择器面板渲染
 - `renderQuarterDropdown()` / `updateQuarterDisplay()`: 季度选择器面板渲染
 - 选择器面板通过 `document` 点击监听器自动关闭
+
+### Export Report Feature
+
+统计结果页标题栏提供"📄 导出报告"按钮，可将当前查询结果导出为 HTML 或 PDF 报告。
+
+**导出流程：**
+- `renderer.js`: `exportReport(format)` → `buildReportHTML()` 组装自包含 HTML（内嵌 CSS + 三张 ECharts 截图 base64 PNG + 汇总/异常统计卡片 + 项目统计表 + 提交明细表 + 页脚时间戳）
+- `preload.js`: `window.exportAPI.saveReport(html, format)`
+- `main.js`: `export-save-report` handler → 原生保存对话框；HTML 直接写文件，PDF 用隐藏 `BrowserWindow` 加载 `data:` URL 后 `printToPDF()` 生成
+
+**报告数据范围：**
+- 汇总统计默认用全量数据；选中某项目/分支 tab 时优先用该分组统计（`summarySource` 从 `branchStats`/`projectStats` 提取），图表与提交明细始终反映当前分组/筛选结果
+- 副标题标注"数据范围"（全部项目/分支 或 当前分组）
 
 ### AI Code Review Feature
 
