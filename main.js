@@ -3608,9 +3608,13 @@ ipcMain.handle('export-save-report', async (event, { html, format }) => {
     ? [{ name: 'PDF 文件', extensions: ['pdf'] }]
     : [{ name: 'HTML 文件', extensions: ['html', 'htm'] }];
 
+  // 使用本地日期生成默认文件名（避免 UTC 日期跨天偏差）
+  const now = new Date();
+  const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
   const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
     title: isPdf ? '导出 PDF 报告' : '导出 HTML 报告',
-    defaultPath: `代码统计报告_${new Date().toISOString().slice(0, 10)}.${ext}`,
+    defaultPath: `代码统计报告_${dateStr}.${ext}`,
     filters
   });
   if (canceled || !filePath) return { success: false, canceled: true };
@@ -3624,14 +3628,17 @@ ipcMain.handle('export-save-report', async (event, { html, format }) => {
         height: 1600,
         webPreferences: { nodeIntegration: false, contextIsolation: true }
       });
-      await pdfWin.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
-      const pdfBuffer = await pdfWin.webContents.printToPDF({
-        printBackground: true,
-        pageSize: 'A4',
-        margins: { marginType: 'default' }
-      });
-      pdfWin.destroy();
-      await fs.writeFile(filePath, pdfBuffer);
+      try {
+        await pdfWin.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+        const pdfBuffer = await pdfWin.webContents.printToPDF({
+          printBackground: true,
+          pageSize: 'A4',
+          margins: { marginType: 'default' }
+        });
+        await fs.writeFile(filePath, pdfBuffer);
+      } finally {
+        if (!pdfWin.isDestroyed()) pdfWin.destroy();
+      }
     } else {
       await fs.writeFile(filePath, html, 'utf-8');
     }
