@@ -3607,6 +3607,12 @@ function buildReportHTML() {
   if (!queryResult) return '';
 
   const r = queryResult;
+  // 汇总数据源：选中分组时用该分组统计，否则用全量（与 updateStats 的分组取值逻辑一致）
+  let summarySource = r;
+  if (selectedGroup !== 'all') {
+    const groupData = queryResult.branchStats?.[selectedGroup] || queryResult.projectStats?.[selectedGroup];
+    if (groupData) summarySource = groupData;
+  }
   const vcs = connectionConfig.vcs || '';
   const vcsLabel = vcs === 'git' ? 'Git' : (vcs === 'mixed' ? 'SVN + Git 混合' : 'SVN');
   const now = new Date();
@@ -3618,15 +3624,19 @@ function buildReportHTML() {
   // 汇总统计卡片
   const summaryCards = `
     <div class="summary-cards">
-      <div class="summary-card"><div class="card-label">提交次数</div><div class="card-value">${r.totalCommits || 0}</div></div>
-      <div class="summary-card added"><div class="card-label">新增行</div><div class="card-value">${r.totalAdded || 0}</div></div>
-      <div class="summary-card deleted"><div class="card-label">删除行</div><div class="card-value">${r.totalDeleted || 0}</div></div>
-      <div class="summary-card net"><div class="card-label">净增行</div><div class="card-value">${r.netLines !== undefined ? r.netLines : ((r.totalAdded || 0) - (r.totalDeleted || 0))}</div></div>
+      <div class="summary-card"><div class="card-label">提交次数</div><div class="card-value">${summarySource.totalCommits || 0}</div></div>
+      <div class="summary-card added"><div class="card-label">新增行</div><div class="card-value">${summarySource.totalAdded || 0}</div></div>
+      <div class="summary-card deleted"><div class="card-label">删除行</div><div class="card-value">${summarySource.totalDeleted || 0}</div></div>
+      <div class="summary-card net"><div class="card-label">净增行</div><div class="card-value">${summarySource.netLines !== undefined ? summarySource.netLines : ((summarySource.totalAdded || 0) - (summarySource.totalDeleted || 0))}</div></div>
     </div>
     <div class="summary-cards small">
-      <div class="summary-card warn"><div class="card-label">超阈值提交</div><div class="card-value">${r.overThresholdCount || 0}</div></div>
-      <div class="summary-card info"><div class="card-label">格式化提交</div><div class="card-value">${r.formatCodeCount || 0}</div></div>
-      <div class="summary-card info"><div class="card-label">活跃天数</div><div class="card-value">${Array.isArray(r.activeDays) ? r.activeDays.length : (r.activeDays || 0)}</div></div>
+      <div class="summary-card warn"><div class="card-label">超阈值提交</div><div class="card-value">${summarySource.overThresholdCount || 0}</div></div>
+      <div class="summary-card info"><div class="card-label">格式化提交</div><div class="card-value">${summarySource.formatCodeCount || 0}</div></div>
+      <div class="summary-card info"><div class="card-label">活跃天数</div><div class="card-value">${
+        Array.isArray(summarySource.activeDays) ? summarySource.activeDays.length
+        : summarySource.dailyStats ? Object.keys(summarySource.dailyStats).length
+        : (summarySource.activeDays || 0)
+      }</div></div>
     </div>`;
 
   // 各项目统计表
@@ -3652,18 +3662,14 @@ function buildReportHTML() {
     </table>`
     : '';
 
-  // 图表区
-  const chartsSection = `
-    <h3>统计图表</h3>
-    <div class="chart-img">
-      <h4>提交类型分布</h4><img src="${chartSvg(pieChart)}" alt="提交类型分布" />
-    </div>
-    <div class="chart-img">
-      <h4>每日提交次数</h4><img src="${chartSvg(barChart)}" alt="每日提交次数" />
-    </div>
-    <div class="chart-img">
-      <h4>每日代码变化趋势</h4><img src="${chartSvg(lineChart)}" alt="每日代码变化趋势" />
-    </div>`;
+  // 图表区（图表为空时跳过该图表块，避免生成破损 img）
+  const pieImg = chartSvg(pieChart);
+  const barImg = chartSvg(barChart);
+  const lineImg = chartSvg(lineChart);
+  let chartsSection = `<h3>统计图表</h3>`;
+  if (pieImg) chartsSection += `<div class="chart-img"><h4>提交类型分布</h4><img src="${pieImg}" alt="提交类型分布" /></div>`;
+  if (barImg) chartsSection += `<div class="chart-img"><h4>每日提交次数</h4><img src="${barImg}" alt="每日提交次数" /></div>`;
+  if (lineImg) chartsSection += `<div class="chart-img"><h4>每日代码变化趋势</h4><img src="${lineImg}" alt="每日代码变化趋势" /></div>`;
 
   // 提交记录明细（当前筛选结果）
   const commits = filteredCommits.length ? filteredCommits : (r.commits || []);
@@ -3731,7 +3737,7 @@ function buildReportHTML() {
 </style>
 </head>
 <body>
-  <h1>代码统计报告</h1>
+  <h1>代码统计报告${timeRange ? ' - ' + escapeHtml(timeRange) : ''}</h1>
   <div class="subtitle">数据来源：${escapeHtml(vcsLabel)} ｜ 统计周期：${escapeHtml(timeRange)} ｜ 数据范围：${escapeHtml(selectedGroup === 'all' ? '全部项目/分支' : selectedGroup)} ｜ 生成时间：${now.toLocaleString('zh-CN')}</div>
   ${summaryCards}
   ${projectSection}
