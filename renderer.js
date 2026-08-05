@@ -3639,9 +3639,9 @@ function buildReportHTML() {
       <td>${ps.totalAdded || 0}</td>
       <td>${ps.totalDeleted || 0}</td>
       <td>${(ps.totalAdded || 0) - (ps.totalDeleted || 0)}</td>
-      <td>${ps.commitTypeStats && ps.commitTypeStats.feat ? ps.commitTypeStats.feat : 0}</td>
-      <td>${ps.commitTypeStats && ps.commitTypeStats.fix ? ps.commitTypeStats.fix : 0}</td>
-      <td>${((ps.totalCommits || 0) - ((ps.commitTypeStats && ps.commitTypeStats.feat) || 0) - ((ps.commitTypeStats && ps.commitTypeStats.fix) || 0))}</td>
+      <td>${ps.featCount || 0}</td>
+      <td>${ps.fixCount || 0}</td>
+      <td>${ps.otherCount !== undefined ? ps.otherCount : ((ps.totalCommits || 0) - (ps.featCount || 0) - (ps.fixCount || 0))}</td>
     </tr>`;
   }
   const projectSection = projectRows
@@ -3732,7 +3732,7 @@ function buildReportHTML() {
 </head>
 <body>
   <h1>代码统计报告</h1>
-  <div class="subtitle">数据来源：${escapeHtml(vcsLabel)} ｜ 统计周期：${escapeHtml(timeRange)} ｜ 生成时间：${now.toLocaleString('zh-CN')}</div>
+  <div class="subtitle">数据来源：${escapeHtml(vcsLabel)} ｜ 统计周期：${escapeHtml(timeRange)} ｜ 数据范围：${escapeHtml(selectedGroup === 'all' ? '全部项目/分支' : selectedGroup)} ｜ 生成时间：${now.toLocaleString('zh-CN')}</div>
   ${summaryCards}
   ${projectSection}
   ${chartsSection}
@@ -3761,17 +3761,23 @@ function getQueryTimeRangeText() {
 
 // 导出报告主流程
 async function exportReport(format) {
+  toggleExportDropdown();
   if (!queryResult) {
     alert('暂无统计数据，请先完成查询');
     return;
   }
-  toggleExportDropdown();
   const html = buildReportHTML();
   if (!html) {
     alert('报告生成失败');
     return;
   }
-  const result = await window.exportAPI.saveReport(html, format);
+  let result;
+  try {
+    result = await window.exportAPI.saveReport(html, format);
+  } catch (e) {
+    alert(`导出出错：${e.message}`);
+    return;
+  }
   if (result && result.canceled) return;
   if (result && result.success) {
     alert(`报告已导出：${result.filePath}`);
