@@ -473,7 +473,27 @@
 
 			<!-- 统计结果 -->
 			<div class="card hidden" id="resultsCard">
-				<h2>统计结果</h2>
+				<div class="results-header">
+					<h2>统计结果</h2>
+					<div class="export-actions">
+						<button
+							type="button"
+							id="exportBtn"
+							class="btn btn-small btn-export"
+							title="导出当前统计结果为报告"
+						>
+							📄 导出报告
+						</button>
+						<div class="export-dropdown hidden" id="exportDropdown">
+							<button type="button" class="export-option" data-format="html">
+								📄 HTML 文件 (.html)
+							</button>
+							<button type="button" class="export-option" data-format="pdf">
+								📕 PDF 文件 (.pdf)
+							</button>
+						</div>
+					</div>
+				</div>
 
 				<!-- 项目选择标签 -->
 				<div class="project-tabs" id="projectTabs"></div>
