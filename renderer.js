@@ -3737,7 +3737,7 @@ function buildReportHTML() {
   ${projectSection}
   ${chartsSection}
   ${commitsSection}
-  <div class="footer">由代码统计工具自动生成</div>
+  <div class="footer">由代码统计工具自动生成于 ${now.toLocaleString('zh-CN')}</div>
 </body>
 </html>`;
 }
@@ -3747,8 +3747,8 @@ function getQueryTimeRangeText() {
   const mode = document.getElementById('queryMode');
   const modeVal = mode ? mode.value : 'month';
   if (modeVal === 'custom') {
-    const s = document.getElementById('startDate');
-    const e = document.getElementById('endDate');
+    const s = document.getElementById('customStartDate');
+    const e = document.getElementById('customEndDate');
     if (s && e && s.value && e.value) return `${s.value} 至 ${e.value}`;
   }
   if (modeVal === 'quarter') {
