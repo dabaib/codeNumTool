@@ -3593,3 +3593,215 @@ function formatDiffToText(diffData) {
 
   return result;
 }
+
+// ====================== 导出报告 ======================
+// 切换导出格式下拉菜单
+function toggleExportDropdown() {
+  const dropdown = document.getElementById('exportDropdown');
+  if (!dropdown) return;
+  dropdown.classList.toggle('hidden');
+}
+
+// 组装独立 HTML 报告文档
+function buildReportHTML() {
+  if (!queryResult) return '';
+
+  const r = queryResult;
+  const vcs = connectionConfig.vcs || '';
+  const vcsLabel = vcs === 'git' ? 'Git' : (vcs === 'mixed' ? 'SVN + Git 混合' : 'SVN');
+  const now = new Date();
+  const timeRange = getQueryTimeRangeText();
+
+  // 图表截图（白色背景，2x 分辨率）
+  const chartSvg = (chart) => (chart ? chart.getDataURL({ type: 'png', pixelRatio: 2, backgroundColor: '#fff' }) : '');
+
+  // 汇总统计卡片
+  const summaryCards = `
+    <div class="summary-cards">
+      <div class="summary-card"><div class="card-label">提交次数</div><div class="card-value">${r.totalCommits || 0}</div></div>
+      <div class="summary-card added"><div class="card-label">新增行</div><div class="card-value">${r.totalAdded || 0}</div></div>
+      <div class="summary-card deleted"><div class="card-label">删除行</div><div class="card-value">${r.totalDeleted || 0}</div></div>
+      <div class="summary-card net"><div class="card-label">净增行</div><div class="card-value">${r.netLines !== undefined ? r.netLines : ((r.totalAdded || 0) - (r.totalDeleted || 0))}</div></div>
+    </div>
+    <div class="summary-cards small">
+      <div class="summary-card warn"><div class="card-label">超阈值提交</div><div class="card-value">${r.overThresholdCount || 0}</div></div>
+      <div class="summary-card info"><div class="card-label">格式化提交</div><div class="card-value">${r.formatCodeCount || 0}</div></div>
+      <div class="summary-card info"><div class="card-label">活跃天数</div><div class="card-value">${Array.isArray(r.activeDays) ? r.activeDays.length : (r.activeDays || 0)}</div></div>
+    </div>`;
+
+  // 各项目统计表
+  let projectRows = '';
+  const projectSource = { ...(r.projectStats || {}), ...(r.branchStats || {}) };
+  for (const [name, ps] of Object.entries(projectSource)) {
+    projectRows += `<tr>
+      <td>${escapeHtml(name)}</td>
+      <td>${ps.totalCommits || 0}</td>
+      <td>${ps.totalAdded || 0}</td>
+      <td>${ps.totalDeleted || 0}</td>
+      <td>${(ps.totalAdded || 0) - (ps.totalDeleted || 0)}</td>
+      <td>${ps.commitTypeStats && ps.commitTypeStats.feat ? ps.commitTypeStats.feat : 0}</td>
+      <td>${ps.commitTypeStats && ps.commitTypeStats.fix ? ps.commitTypeStats.fix : 0}</td>
+      <td>${((ps.totalCommits || 0) - ((ps.commitTypeStats && ps.commitTypeStats.feat) || 0) - ((ps.commitTypeStats && ps.commitTypeStats.fix) || 0))}</td>
+    </tr>`;
+  }
+  const projectSection = projectRows
+    ? `<h3>各项目代码量统计</h3>
+    <table class="report-table">
+      <thead><tr><th>项目名称</th><th>提交次数</th><th>新增行</th><th>删除行</th><th>净增行</th><th>feat</th><th>fix</th><th>其他</th></tr></thead>
+      <tbody>${projectRows}</tbody>
+    </table>`
+    : '';
+
+  // 图表区
+  const chartsSection = `
+    <h3>统计图表</h3>
+    <div class="chart-img">
+      <h4>提交类型分布</h4><img src="${chartSvg(pieChart)}" alt="提交类型分布" />
+    </div>
+    <div class="chart-img">
+      <h4>每日提交次数</h4><img src="${chartSvg(barChart)}" alt="每日提交次数" />
+    </div>
+    <div class="chart-img">
+      <h4>每日代码变化趋势</h4><img src="${chartSvg(lineChart)}" alt="每日代码变化趋势" />
+    </div>`;
+
+  // 提交记录明细（当前筛选结果）
+  const commits = filteredCommits.length ? filteredCommits : (r.commits || []);
+  let commitRows = '';
+  for (const c of commits) {
+    const typeLabel = c.commitType || 'other';
+    const statusMap = { normal: '正常', over: '超阈值', format: '格式化代码' };
+    const branchLabel = c.branch ? (c.repoName ? `${c.repoName}/${c.branch}` : c.branch) : (c.project || '-');
+    commitRows += `<tr>
+      <td>${escapeHtml(branchLabel)}</td>
+      <td>${escapeHtml(c.revision || c.fullHash || '')}</td>
+      <td>${escapeHtml(c.date || '')}</td>
+      <td>${escapeHtml(c.author || '')}</td>
+      <td><span class="type-tag">${escapeHtml(typeLabel)}</span></td>
+      <td class="msg">${escapeHtml(c.message || '')}</td>
+      <td class="num added">+${c.added || 0}</td>
+      <td class="num deleted">-${c.deleted || 0}</td>
+      <td class="num">${c.net !== undefined ? c.net : ((c.added || 0) - (c.deleted || 0))}</td>
+      <td>${statusMap[c.status] || '正常'}</td>
+    </tr>`;
+  }
+  const commitsSection = `
+    <h3>提交记录明细（${commits.length} 条）</h3>
+    <table class="report-table commits">
+      <thead><tr><th>项目/分支</th><th>版本号</th><th>日期</th><th>作者</th><th>类型</th><th>提交信息</th><th>新增</th><th>删除</th><th>净增</th><th>状态</th></tr></thead>
+      <tbody>${commitRows}</tbody>
+    </table>`;
+
+  return `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>代码统计报告</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif; color: #303133; background: #fff; padding: 32px; line-height: 1.6; }
+  h1 { font-size: 24px; margin-bottom: 4px; }
+  .subtitle { color: #909399; font-size: 13px; margin-bottom: 24px; }
+  h3 { font-size: 16px; margin: 28px 0 12px; padding-bottom: 8px; border-bottom: 2px solid #409eff; }
+  h4 { font-size: 14px; margin: 12px 0 6px; color: #606266; }
+  .summary-cards { display: flex; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
+  .summary-cards.small .summary-card { flex: 1; min-width: 140px; }
+  .summary-card { flex: 1; min-width: 160px; background: #f5f7fa; border: 1px solid #e4e7ed; border-radius: 8px; padding: 14px 16px; text-align: center; }
+  .summary-card .card-label { font-size: 12px; color: #909399; }
+  .summary-card .card-value { font-size: 22px; font-weight: 700; margin-top: 4px; }
+  .summary-card.added .card-value { color: #67c23a; }
+  .summary-card.deleted .card-value { color: #f56c6c; }
+  .summary-card.net .card-value { color: #409eff; }
+  .summary-card.warn .card-value { color: #e6a23c; }
+  .summary-card.info .card-value { color: #409eff; }
+  .report-table { width: 100%; border-collapse: collapse; margin-bottom: 16px; font-size: 13px; }
+  .report-table th, .report-table td { border: 1px solid #e4e7ed; padding: 8px 10px; text-align: left; }
+  .report-table th { background: #f5f7fa; font-weight: 600; white-space: nowrap; }
+  .report-table tbody tr:nth-child(even) { background: #fafafa; }
+  .report-table .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .report-table .num.added { color: #67c23a; }
+  .report-table .num.deleted { color: #f56c6c; }
+  .report-table .msg { max-width: 320px; word-break: break-all; }
+  .type-tag { display: inline-block; background: #ecf5ff; color: #409eff; border-radius: 3px; padding: 1px 6px; font-size: 12px; }
+  .chart-img { margin-bottom: 16px; text-align: center; }
+  .chart-img img { max-width: 100%; border: 1px solid #e4e7ed; border-radius: 6px; }
+  .footer { margin-top: 32px; padding-top: 12px; border-top: 1px solid #e4e7ed; color: #909399; font-size: 12px; text-align: center; }
+  @media print { body { padding: 16px; } .chart-img img { page-break-inside: avoid; } }
+</style>
+</head>
+<body>
+  <h1>代码统计报告</h1>
+  <div class="subtitle">数据来源：${escapeHtml(vcsLabel)} ｜ 统计周期：${escapeHtml(timeRange)} ｜ 生成时间：${now.toLocaleString('zh-CN')}</div>
+  ${summaryCards}
+  ${projectSection}
+  ${chartsSection}
+  ${commitsSection}
+  <div class="footer">由代码统计工具自动生成</div>
+</body>
+</html>`;
+}
+
+// 生成时间范围文案（与查询模式联动）
+function getQueryTimeRangeText() {
+  const mode = document.getElementById('queryMode');
+  const modeVal = mode ? mode.value : 'month';
+  if (modeVal === 'custom') {
+    const s = document.getElementById('startDate');
+    const e = document.getElementById('endDate');
+    if (s && e && s.value && e.value) return `${s.value} 至 ${e.value}`;
+  }
+  if (modeVal === 'quarter') {
+    const display = document.getElementById('quarterDisplay');
+    if (display && display.value) return display.value;
+  }
+  const display = document.getElementById('monthDisplay');
+  return (display && display.value) ? display.value : '';
+}
+
+// 导出报告主流程
+async function exportReport(format) {
+  if (!queryResult) {
+    alert('暂无统计数据，请先完成查询');
+    return;
+  }
+  toggleExportDropdown();
+  const html = buildReportHTML();
+  if (!html) {
+    alert('报告生成失败');
+    return;
+  }
+  const result = await window.exportAPI.saveReport(html, format);
+  if (result && result.canceled) return;
+  if (result && result.success) {
+    alert(`报告已导出：${result.filePath}`);
+  } else {
+    alert(`导出失败：${result.error || '未知错误'}`);
+  }
+}
+
+// 绑定导出按钮和下拉事件
+document.addEventListener('DOMContentLoaded', () => {
+  const exportBtn = document.getElementById('exportBtn');
+  const dropdown = document.getElementById('exportDropdown');
+  if (!exportBtn || !dropdown) return;
+
+  exportBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleExportDropdown();
+  });
+
+  dropdown.querySelectorAll('.export-option').forEach(option => {
+    option.addEventListener('click', () => {
+      exportReport(option.dataset.format);
+    });
+  });
+
+  // 点击外部关闭下拉
+  document.addEventListener('click', (event) => {
+    const actions = document.querySelector('.export-actions');
+    if (actions && !actions.contains(event.target)) {
+      dropdown.classList.add('hidden');
+    }
+  });
+});
