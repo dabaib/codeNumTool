@@ -2327,6 +2327,8 @@ h1 {
 }
 .results-header h2 {
 	margin: 0;
+	border-bottom: none;
+	padding-bottom: 0;
 }
 .export-actions {
 	position: relative;
