@@ -74,3 +74,9 @@ contextBridge.exposeInMainWorld('multiRepoAPI', {
 contextBridge.exposeInMainWorld('gitMultiRepoAPI', {
   getStats: (config) => ipcRenderer.invoke('git-multi-stats', config)
 });
+
+// 导出报告 API
+contextBridge.exposeInMainWorld('exportAPI', {
+  saveReport: (html, format) =>
+    ipcRenderer.invoke('export-save-report', { html, format })
+});
