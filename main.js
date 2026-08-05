@@ -3599,3 +3599,44 @@ async function getSvnStats(projects, username, password, author, year, month, th
     }
   };
 }
+
+// 导出报告 (HTML/PDF)
+ipcMain.handle('export-save-report', async (event, { html, format }) => {
+  const isPdf = format === 'pdf';
+  const ext = isPdf ? 'pdf' : 'html';
+  const filters = isPdf
+    ? [{ name: 'PDF 文件', extensions: ['pdf'] }]
+    : [{ name: 'HTML 文件', extensions: ['html', 'htm'] }];
+
+  const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
+    title: isPdf ? '导出 PDF 报告' : '导出 HTML 报告',
+    defaultPath: `代码统计报告_${new Date().toISOString().slice(0, 10)}.${ext}`,
+    filters
+  });
+  if (canceled || !filePath) return { success: false, canceled: true };
+
+  try {
+    if (isPdf) {
+      // 用隐藏窗口渲染 HTML 后打印为 PDF
+      const pdfWin = new BrowserWindow({
+        show: false,
+        width: 1200,
+        height: 1600,
+        webPreferences: { nodeIntegration: false, contextIsolation: true }
+      });
+      await pdfWin.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+      const pdfBuffer = await pdfWin.webContents.printToPDF({
+        printBackground: true,
+        pageSize: 'A4',
+        margins: { marginType: 'default' }
+      });
+      pdfWin.destroy();
+      await fs.writeFile(filePath, pdfBuffer);
+    } else {
+      await fs.writeFile(filePath, html, 'utf-8');
+    }
+    return { success: true, filePath };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
