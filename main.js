@@ -1360,6 +1360,9 @@ ipcMain.handle('git-multi-stats', async (event, config) => {
           totalCommits: branchData.totalCommits,
           overThresholdCount: branchData.overThresholdCount,
           formatCodeCount: branchData.formatCodeCount,
+          featCount: branchData.featCount,
+          fixCount: branchData.fixCount,
+          otherCount: branchData.otherCount,
           dailyStats: branchData.dailyStats || {}
         };
       }
