@@ -192,6 +192,17 @@ function parseCommitType(message) {
   return 'other';
 }
 
+// 判断是否应跳过该提交（合并提交、回退提交不统计）
+function shouldSkipCommit(message) {
+  if (!message) return false;
+  const msg = message.trim();
+  // 合并提交：Merge branch/pull/remote/tag/commit、合并分支、合并请求
+  if (/^(Merge|合并)\s+(branch|pull|remote|tag|commit|Branch|Pull|Remote|Tag|Commit|分支|请求)/.test(msg)) return true;
+  // 回退提交：Revert、回退、撤销
+  if (/^(Revert|回退|撤销)\s+/i.test(msg)) return true;
+  return false;
+}
+
 // 判断提交状态（正常、超阈值、格式化代码）
 function getCommitStatus(added, deleted, threshold, formatThreshold) {
   const total = added + deleted;
@@ -309,6 +320,7 @@ ipcMain.handle('svn-stats', async (event, { projects, username, password, author
             // 确保是目标作者的提交
             if (authorMatch[1].toLowerCase() === author.toLowerCase()) {
               const message = msgMatch ? msgMatch[1].trim() : '';
+              if (shouldSkipCommit(message)) continue;
               const commitType = parseCommitType(message);
 
               // 获取diff统计
@@ -572,6 +584,7 @@ ipcMain.handle('gitlab-stats', async (event, { projects, author, branches, year,
 
           const date = lines[3].replace(' ', 'T') + 'Z';
           const message = lines.slice(4).join('\n').trim();
+          if (shouldSkipCommit(message)) continue;
           const commitType = parseCommitType(message);
           const dateStr = date.substring(0, 10);
 
@@ -893,6 +906,7 @@ ipcMain.handle('gitlab-api-stats', async (event, {
           }
 
           const dateStr = commit.created_at.substring(0, 10);
+          if (shouldSkipCommit(commit.title)) continue;
           const commitType = parseCommitType(commit.title);
           const status = getCommitStatus(added, deleted, threshold, formatThreshold);
 
@@ -1115,6 +1129,7 @@ ipcMain.handle('gitlab-ssh-stats', async (event, {
 
         const date = lines[3].replace(' ', 'T') + 'Z';
         const message = lines.slice(4).join('\n').trim();
+        if (shouldSkipCommit(message)) continue;
         const commitType = parseCommitType(message);
         const dateStr = date.substring(0, 10);
 
@@ -1451,6 +1466,7 @@ async function getLocalRepoStatsForMulti(repoPath, repoName, author, branches, y
 
         const date = lines[3].replace(' ', 'T') + 'Z';
         const message = lines.slice(4).join('\n').trim();
+        if (shouldSkipCommit(message)) continue;
         const commitType = parseCommitType(message);
         const dateStr = date.substring(0, 10);
 
@@ -1650,6 +1666,7 @@ async function getSshRepoStatsForMulti(repoUrl, repoName, author, branches, year
 
         const date = lines[3].replace(' ', 'T') + 'Z';
         const message = lines.slice(4).join('\n').trim();
+        if (shouldSkipCommit(message)) continue;
         const commitType = parseCommitType(message);
         const dateStr = date.substring(0, 10);
 
@@ -2155,6 +2172,7 @@ ipcMain.handle('gitlab-local-stats', async (event, {
 
           const date = lines[3].replace(' ', 'T') + 'Z';
           const message = lines.slice(4).join('\n').trim();
+          if (shouldSkipCommit(message)) continue;
           const commitType = parseCommitType(message);
           const dateStr = date.substring(0, 10);
 
@@ -2851,6 +2869,7 @@ async function getLocalStats(repoPath, repoName, branches, author, startD, endD,
 
         const date = lines[3].replace(' ', 'T') + 'Z';
         const message = lines.slice(4).join('\n').trim();
+        if (shouldSkipCommit(message)) continue;
         const commitType = parseCommitType(message);
         const dateStr = date.substring(0, 10);
 
@@ -3042,6 +3061,7 @@ async function getSshStats(repoUrl, repoName, branches, author, startD, endD, th
 
         const date = lines[3].replace(' ', 'T') + 'Z';
         const message = lines.slice(4).join('\n').trim();
+        if (shouldSkipCommit(message)) continue;
         const commitType = parseCommitType(message);
         const dateStr = date.substring(0, 10);
 
@@ -3227,6 +3247,7 @@ async function getGitLabApiStats(gitlabUrl, token, projectId, projectName, branc
         const status = getCommitStatus(added, deleted, threshold, formatThreshold);
         const dateStr = commit.created_at.substring(0, 10);
         activeDaysSet.add(dateStr);
+        if (shouldSkipCommit(commit.message)) continue;
 
         const commitType = parseCommitType(commit.message);
         commitTypeStats[commitType] = (commitTypeStats[commitType] || 0) + 1;
@@ -3469,6 +3490,7 @@ async function getSvnStats(projects, username, password, author, year, month, th
         if (revMatch && dateMatch && authorMatch) {
           if (authorMatch[1].toLowerCase() === author.toLowerCase()) {
             const message = msgMatch ? msgMatch[1].trim() : '';
+            if (shouldSkipCommit(message)) continue;
             const commitType = parseCommitType(message);
 
             try {
