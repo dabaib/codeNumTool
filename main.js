@@ -84,6 +84,16 @@ function runSvnCommand(command) {
   });
 }
 
+// 日期辅助函数：返回指定日期字符串的下一天（用于补偿 git --until 的排他性）
+function nextDay(dateStr) {
+  const d = new Date(dateStr);
+  d.setDate(d.getDate() + 1);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 // 验证SVN连接（支持多项目）
 ipcMain.handle('svn-login', async (event, { projects, username, password }) => {
   try {
@@ -270,6 +280,7 @@ ipcMain.handle('svn-stats', async (event, { projects, username, password, author
     const endMonth = month === 12 ? 1 : month + 1;
     const endYear = month === 12 ? year + 1 : year;
     const endD = endDate || `${endYear}-${String(endMonth).padStart(2, '0')}-01`;
+    const endDForGit = nextDay(endD); // 补偿 git --until 排他性
     // We will use local vars startD and endD in queries
 
     const allCommits = [];
@@ -401,9 +412,6 @@ ipcMain.handle('svn-stats', async (event, { projects, username, password, author
 
     // 生成当月每天的数据（补齐没有提交的日期）
     const chartData = [];
-    const _start = new Date(startD);
-    const _end = new Date(endD);
-    _end.setDate(_end.getDate() - 1); 
     let currDay = new Date(startDate ? startDate : `${year}-${String(month).padStart(2, '0')}-01`);
     let targetEnd = new Date(endDate ? endDate : `${year}-${String(month).padStart(2, '0')}-${new Date(year, month, 0).getDate()}`);
     
@@ -481,6 +489,7 @@ ipcMain.handle('gitlab-stats', async (event, { projects, author, branches, year,
     const endMonth = month === 12 ? 1 : month + 1;
     const endYear = month === 12 ? year + 1 : year;
     const endD = endDate || `${endYear}-${String(endMonth).padStart(2, '0')}-01`;
+    const endDForGit = nextDay(endD); // 补偿 git --until 排他性
     // We will use local vars startD and endD in queries
 
   const allCommits = [];
@@ -543,7 +552,7 @@ ipcMain.handle('gitlab-stats', async (event, { projects, author, branches, year,
         const logSeparator = '---COMMIT-SEPARATOR---';
         const logFormat = `%H%n%aN%n%cN%n%ai%n%s%n%b${logSeparator}`; // Added %cN for committer name
         // Removed --author flag to filter in JS, which is more robust
-        const logCommand = `git -C "${repoPath}" log origin/${branchName} --since="${startD}" --until="${endD}" --pretty=format:"${logFormat}"`;
+        const logCommand = `git -C "${repoPath}" log origin/${branchName} --since="${startD}" --until="${endDForGit}" --pretty=format:"${logFormat}"`;
 
         const logOutput = await runCommand(logCommand);
         const commitLogs = logOutput.split(logSeparator).filter(log => log.trim() !== '');
@@ -646,9 +655,6 @@ ipcMain.handle('gitlab-stats', async (event, { projects, author, branches, year,
 
     // --- 后续处理 ---
     const chartData = [];
-    const _start = new Date(startD);
-    const _end = new Date(endD);
-    _end.setDate(_end.getDate() - 1); 
     let currDay = new Date(startDate ? startDate : `${year}-${String(month).padStart(2, '0')}-01`);
     let targetEnd = new Date(endDate ? endDate : `${year}-${String(month).padStart(2, '0')}-${new Date(year, month, 0).getDate()}`);
     
@@ -943,9 +949,6 @@ ipcMain.handle('gitlab-api-stats', async (event, {
 
     // 生成图表数据
     const chartData = [];
-    const _start = new Date(startD);
-    const _end = new Date(endD);
-    _end.setDate(_end.getDate() - 1); 
     let currDay = new Date(startDate ? startDate : `${year}-${String(month).padStart(2, '0')}-01`);
     let targetEnd = new Date(endDate ? endDate : `${year}-${String(month).padStart(2, '0')}-${new Date(year, month, 0).getDate()}`);
     
@@ -1036,6 +1039,7 @@ ipcMain.handle('gitlab-ssh-stats', async (event, {
     const endMonth = month === 12 ? 1 : month + 1;
     const endYear = month === 12 ? year + 1 : year;
     const endD = endDate || `${endYear}-${String(endMonth).padStart(2, '0')}-01`;
+    const endDForGit = nextDay(endD); // 补偿 git --until 排他性
     // We will use local vars startD and endD in queries
 
   const allCommits = [];
@@ -1087,7 +1091,7 @@ ipcMain.handle('gitlab-ssh-stats', async (event, {
 
       const logSeparator = '---COMMIT-SEPARATOR---';
       const logFormat = `%H%n%aN%n%cN%n%ai%n%s%n%b${logSeparator}`;
-      const logCommand = `git -C "${repoPath}" log origin/${branchName} --since="${startD}" --until="${endD}" --pretty=format:"${logFormat}"`;
+      const logCommand = `git -C "${repoPath}" log origin/${branchName} --since="${startD}" --until="${endDForGit}" --pretty=format:"${logFormat}"`;
 
       const logOutput = await runCommand(logCommand);
       const commitLogs = logOutput.split(logSeparator).filter(log => log.trim() !== '');
@@ -1187,9 +1191,6 @@ ipcMain.handle('gitlab-ssh-stats', async (event, {
 
     // 生成图表数据
     const chartData = [];
-    const _start = new Date(startD);
-    const _end = new Date(endD);
-    _end.setDate(_end.getDate() - 1); 
     let currDay = new Date(startDate ? startDate : `${year}-${String(month).padStart(2, '0')}-01`);
     let targetEnd = new Date(endDate ? endDate : `${year}-${String(month).padStart(2, '0')}-${new Date(year, month, 0).getDate()}`);
     
@@ -1395,6 +1396,7 @@ async function getLocalRepoStatsForMulti(repoPath, repoName, author, branches, y
   const endMonth = month === 12 ? 1 : month + 1;
   const endYear = month === 12 ? year + 1 : year;
   const endD = endDate || `${endYear}-${String(endMonth).padStart(2, '0')}-01`;
+  const endDForGit = nextDay(endD); // 补偿 git --until 排他性
 
   const allCommits = [];
   const branchStats = {};
@@ -1419,13 +1421,13 @@ async function getLocalRepoStatsForMulti(repoPath, repoName, author, branches, y
     const logFormat = `%H%n%aN%n%cN%n%ai%n%s%n%b${logSeparator}`;
 
     try {
-      let logCommand = `git -C "${repoPath}" log origin/${branchName} --since="${startD}" --until="${endD}" --pretty=format:"${logFormat}"`;
+      let logCommand = `git -C "${repoPath}" log origin/${branchName} --since="${startD}" --until="${endDForGit}" --pretty=format:"${logFormat}"`;
       let logOutput;
 
       try {
         logOutput = await runCommand(logCommand);
       } catch (e) {
-        logCommand = `git -C "${repoPath}" log ${branchName} --since="${startD}" --until="${endD}" --pretty=format:"${logFormat}"`;
+        logCommand = `git -C "${repoPath}" log ${branchName} --since="${startD}" --until="${endDForGit}" --pretty=format:"${logFormat}"`;
         logOutput = await runCommand(logCommand);
       }
 
@@ -1578,6 +1580,7 @@ async function getSshRepoStatsForMulti(repoUrl, repoName, author, branches, year
   const endMonth = month === 12 ? 1 : month + 1;
   const endYear = month === 12 ? year + 1 : year;
   const endD = endDate || `${endYear}-${String(endMonth).padStart(2, '0')}-01`;
+  const endDForGit = nextDay(endD); // 补偿 git --until 排他性
 
   const allCommits = [];
   const branchStats = {};
@@ -1624,7 +1627,7 @@ async function getSshRepoStatsForMulti(repoUrl, repoName, author, branches, year
 
       const logSeparator = '---COMMIT-SEPARATOR---';
       const logFormat = `%H%n%aN%n%cN%n%ai%n%s%n%b${logSeparator}`;
-      const logCommand = `git -C "${repoPath}" log origin/${branchName} --since="${startD}" --until="${endD}" --pretty=format:"${logFormat}"`;
+      const logCommand = `git -C "${repoPath}" log origin/${branchName} --since="${startD}" --until="${endDForGit}" --pretty=format:"${logFormat}"`;
 
       const logOutput = await runCommand(logCommand);
       const commitLogs = logOutput.split(logSeparator).filter(log => log.trim() !== '');
@@ -2090,6 +2093,7 @@ ipcMain.handle('gitlab-local-stats', async (event, {
     const endMonth = month === 12 ? 1 : month + 1;
     const endYear = month === 12 ? year + 1 : year;
     const endD = endDate || `${endYear}-${String(endMonth).padStart(2, '0')}-01`;
+    const endDForGit = nextDay(endD); // 补偿 git --until 排他性
     // We will use local vars startD and endD in queries
 
     const allCommits = [];
@@ -2117,14 +2121,14 @@ ipcMain.handle('gitlab-local-stats', async (event, {
 
       try {
         // 尝试 origin/branch 或直接 branch
-        let logCommand = `git -C "${repoPath}" log origin/${branchName} --since="${startD}" --until="${endD}" --pretty=format:"${logFormat}"`;
+        let logCommand = `git -C "${repoPath}" log origin/${branchName} --since="${startD}" --until="${endDForGit}" --pretty=format:"${logFormat}"`;
         let logOutput;
 
         try {
           logOutput = await runCommand(logCommand);
         } catch (e) {
           // 如果 origin/branch 不存在，尝试直接使用分支名
-          logCommand = `git -C "${repoPath}" log ${branchName} --since="${startD}" --until="${endD}" --pretty=format:"${logFormat}"`;
+          logCommand = `git -C "${repoPath}" log ${branchName} --since="${startD}" --until="${endDForGit}" --pretty=format:"${logFormat}"`;
           logOutput = await runCommand(logCommand);
         }
 
@@ -2233,9 +2237,6 @@ ipcMain.handle('gitlab-local-stats', async (event, {
 
     // 生成图表数据
     const chartData = [];
-    const _start = new Date(startD);
-    const _end = new Date(endD);
-    _end.setDate(_end.getDate() - 1); 
     let currDay = new Date(startDate ? startDate : `${year}-${String(month).padStart(2, '0')}-01`);
     let targetEnd = new Date(endDate ? endDate : `${year}-${String(month).padStart(2, '0')}-${new Date(year, month, 0).getDate()}`);
     
@@ -2664,6 +2665,7 @@ async function getGitMultiReposStats(repos, author, year, month, threshold, form
   const endMonth = month === 12 ? 1 : month + 1;
   const endYear = month === 12 ? year + 1 : year;
   const endD = endDate || `${endYear}-${String(endMonth).padStart(2, '0')}-01`;
+  const endDForGit = nextDay(endD); // 补偿 git --until 排他性
 
   const allCommits = [];
   const branchStats = {};
@@ -2674,16 +2676,26 @@ async function getGitMultiReposStats(repos, author, year, month, threshold, form
 
   for (const repo of repos) {
     try {
+      // 使用用户选中的分支，若未选中则回退到全部分支
+      let branches;
+      if (repo.selectedBranches instanceof Set && repo.selectedBranches.size > 0) {
+        branches = Array.from(repo.selectedBranches);
+      } else if (Array.isArray(repo.selectedBranches) && repo.selectedBranches.length > 0) {
+        branches = repo.selectedBranches;
+      } else {
+        branches = repo.branches || [];
+      }
+
       let result;
       if (repo.type === 'local') {
         // 本地仓库模式
-        result = await getLocalStats(repo.repoPath, repo.repoName, repo.branches, author, startD, endD, threshold, formatThreshold);
+        result = await getLocalStats(repo.repoPath, repo.repoName, branches, author, startD, endD, threshold, formatThreshold);
       } else if (repo.type === 'ssh') {
         // SSH 远程模式
-        result = await getSshStats(repo.repoUrl, repo.repoName, repo.branches, author, startD, endD, threshold, formatThreshold);
+        result = await getSshStats(repo.repoUrl, repo.repoName, branches, author, startD, endD, threshold, formatThreshold);
       } else if (repo.type === 'api') {
         // GitLab API 模式
-        result = await getGitLabApiStats(repo.gitlabUrl, repo.token, repo.projectId, repo.projectName, repo.branches, author, startDate || startD, endDate || endD, threshold, formatThreshold);
+        result = await getGitLabApiStats(repo.gitlabUrl, repo.token, repo.projectId, repo.projectName, branches, author, startDate || startD, endDate || endD, threshold, formatThreshold);
       }
 
       if (result && result.success) {
@@ -2805,14 +2817,16 @@ async function getLocalStats(repoPath, repoName, branches, author, startD, endD,
     const logSeparator = '---COMMIT-SEPARATOR---';
     const logFormat = `%H%n%aN%n%cN%n%ai%n%s%n%b${logSeparator}`;
 
+    const endDForGit = nextDay(endD); // 补偿 git --until 排他性
+
     try {
-      let logCommand = `git -C "${repoPath}" log origin/${branchName} --since="${startD}" --until="${endD}" --pretty=format:"${logFormat}"`;
+      let logCommand = `git -C "${repoPath}" log origin/${branchName} --since="${startD}" --until="${endDForGit}" --pretty=format:"${logFormat}"`;
       let logOutput;
 
       try {
         logOutput = await runCommand(logCommand);
       } catch (e) {
-        logCommand = `git -C "${repoPath}" log ${branchName} --since="${startD}" --until="${endD}" --pretty=format:"${logFormat}"`;
+        logCommand = `git -C "${repoPath}" log ${branchName} --since="${startD}" --until="${endDForGit}" --pretty=format:"${logFormat}"`;
         logOutput = await runCommand(logCommand);
       }
 
@@ -2915,12 +2929,8 @@ async function getLocalStats(repoPath, repoName, branches, author, startD, endD,
 
   // 生成图表数据
   const chartData = [];
-  const _start = new Date(startD);
-  const _end = new Date(endD);
-  _end.setDate(_end.getDate() - 1);
   let currDay = new Date(startD);
-  let targetEnd = new Date(endD);
-  targetEnd.setDate(targetEnd.getDate() - 1);
+  const targetEnd = new Date(endD);
 
   let limit = 0;
   while (currDay <= targetEnd && limit++ < 2000) {
@@ -2966,6 +2976,7 @@ async function getSshStats(repoUrl, repoName, branches, author, startD, endD, th
   const activeDaysSet = new Set();
   const commitTypeStats = {};
   const processedHashes = new Set();
+  const endDForGit = nextDay(endD); // 补偿 git --until 排他性
 
   const tempDir = path.join(app.getPath('temp'), `jixiao-ssh-multi-${Date.now()}`);
   await fs.ensureDir(tempDir);
@@ -3007,7 +3018,7 @@ async function getSshStats(repoUrl, repoName, branches, author, startD, endD, th
 
       const logSeparator = '---COMMIT-SEPARATOR---';
       const logFormat = `%H%n%aN%n%cN%n%ai%n%s%n%b${logSeparator}`;
-      const logCommand = `git -C "${repoPath}" log origin/${branchName} --since="${startD}" --until="${endD}" --pretty=format:"${logFormat}"`;
+      const logCommand = `git -C "${repoPath}" log origin/${branchName} --since="${startD}" --until="${endDForGit}" --pretty=format:"${logFormat}"`;
 
       const logOutput = await runCommand(logCommand);
       const commitLogs = logOutput.split(logSeparator).filter(log => log.trim() !== '');
@@ -3107,8 +3118,7 @@ async function getSshStats(repoUrl, repoName, branches, author, startD, endD, th
     // 生成图表数据
     const chartData = [];
     let currDay = new Date(startD);
-    let targetEnd = new Date(endD);
-    targetEnd.setDate(targetEnd.getDate() - 1);
+    const targetEnd = new Date(endD);
 
     let limit = 0;
     while (currDay <= targetEnd && limit++ < 2000) {
@@ -3269,8 +3279,7 @@ async function getGitLabApiStats(gitlabUrl, token, projectId, projectName, branc
   // 生成图表数据
   const chartData = [];
   let currDay = new Date(startDate);
-  let targetEnd = new Date(endDate);
-  targetEnd.setDate(targetEnd.getDate() - 1);
+  const targetEnd = new Date(endDate);
 
   let limit = 0;
   while (currDay <= targetEnd && limit++ < 2000) {
