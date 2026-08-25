@@ -496,7 +496,7 @@ ipcMain.handle('svn-stats', async (event, { projects, username, password, author
 });
 
 // 获取用户提交统计（GitLab）
-ipcMain.handle('gitlab-stats', async (event, { projects, author, branches, year, month, threshold, formatThreshold, startDate, endDate }) => {
+async function getGitlabStats({ projects, author, branches, year, month, threshold, formatThreshold, startDate, endDate }) {
   const startD = startDate || `${year}-${String(month).padStart(2, '0')}-01`;
     const endMonth = month === 12 ? 1 : month + 1;
     const endYear = month === 12 ? year + 1 : year;
@@ -721,6 +721,10 @@ ipcMain.handle('gitlab-stats', async (event, { projects, author, branches, year,
   } finally {
     await fs.remove(tempDir);
   }
+}
+
+ipcMain.handle('gitlab-stats', async (event, params) => {
+  return await getGitlabStats(params);
 });
 
 // ============================================
@@ -2424,10 +2428,17 @@ function callLLMApi(apiUrl, model, authorization, prompt) {
         stream: false
       });
 
+      // 若用户只填了域名（路径为 / 或空），自动补全 /v1/chat/completions
+      let apiPath = urlObj.pathname;
+      if (!apiPath || apiPath === '/') {
+        apiPath = '/v1/chat/completions';
+      }
+      apiPath += urlObj.search;
+
       const options = {
         hostname: urlObj.hostname,
         port: urlObj.port || (urlObj.protocol === 'https:' ? 443 : 80),
-        path: urlObj.pathname + urlObj.search,
+        path: apiPath,
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -3681,3 +3692,354 @@ ipcMain.handle('export-save-report', async (event, { html, format }) => {
     return { success: false, error: error.message };
   }
 });
+
+// 生成月度审查报告
+ipcMain.handle('generate-monthly-report', async (event, { author, year, month, statsData, dimensions, aiConfig }) => {
+  try {
+    // 校验 AI 配置
+    if (!aiConfig || !aiConfig.apiUrl) {
+      return { success: false, error: 'AI 配置未填写，请先在"AI 代码审查"面板中配置 API 地址、模型和密钥' };
+    }
+
+    const commits = statsData?.commits || [];
+    if (commits.length === 0) {
+      return { success: false, error: '没有提交记录可生成报告' };
+    }
+
+    // 限制最大处理条数
+    if (commits.length > 500) {
+      return { success: false, error: `提交记录超过 500 条（当前 ${commits.length} 条），请分批生成报告` };
+    }
+
+    const BATCH_SIZE = 5; // 每批处理 5 条
+    const summaries = [];
+    const totalBatches = Math.ceil(commits.length / BATCH_SIZE);
+
+    // 分批处理：为每条提交获取 diff 并生成变更摘要
+    for (let i = 0; i < commits.length; i++) {
+      const commit = commits[i];
+      const batchIndex = Math.floor(i / BATCH_SIZE) + 1;
+
+      try {
+        // 获取 diff（根据 repo 类型选择不同方式）
+        let diffResult;
+        if (commit.repoSource === 'local') {
+          diffResult = await getLocalRepoDiff(commit.repoPath, commit.revision);
+        } else if (commit.repoSource === 'ssh') {
+          diffResult = await getSshRepoDiff(commit.repoUrl, commit.revision);
+        } else if (commit.repoSource === 'gitlab-api') {
+          diffResult = await getGitLabApiDiff(commit.gitlabUrl, commit.token, commit.projectId, commit.revision);
+        } else {
+          // 未知来源，尝试本地
+          diffResult = await getLocalRepoDiff(commit.repoPath, commit.revision);
+        }
+
+        const diffContent = diffResult?.success ? diffResult.raw : '(无法获取 diff)';
+
+        // 调用 AI 生成变更摘要
+        const summaryPrompt = `## 代码变更摘要生成
+
+**提交信息：** ${commit.message}
+**作者：** ${author}
+**日期：** ${commit.date}
+**仓库/分支：** ${commit.project} / ${commit.branch || 'N/A'}
+**变更统计：** +${commit.added} -${commit.deleted}
+
+**代码差异（前 500 行）：**
+\`\`\`diff
+${diffContent.slice(0, 50000)}
+\`\`\`
+
+请生成 100 字以内的变更摘要，格式如下：
+[文件变更摘要] 修改了 X 个文件，主要变更：
+- {filename}: +{add}/-{del} ({变更类型})
+[代码概览] {一句话描述改动内容}`;
+
+        const llmResp = await callLLMApi(aiConfig.apiUrl, aiConfig.model, aiConfig.authorization, summaryPrompt);
+        const summary = llmResp.success ? llmResp.result : '(摘要生成失败)';
+
+        summaries.push({
+          revision: commit.revision,
+          date: commit.date,
+          message: commit.message,
+          commitType: commit.commitType,
+          added: commit.added,
+          deleted: commit.deleted,
+          status: commit.status,
+          project: commit.project,
+          summary
+        });
+
+      } catch (e) {
+        summaries.push({
+          revision: commit.revision,
+          date: commit.date,
+          message: commit.message,
+          commitType: commit.commitType,
+          added: commit.added,
+          deleted: commit.deleted,
+          status: commit.status,
+          project: commit.project,
+          summary: `(处理失败: ${e.message})`
+        });
+      }
+
+      // 发送进度更新
+      event.sender.send('monthly-report-progress', {
+        current: i + 1,
+        total: commits.length,
+        batch: batchIndex,
+        totalBatches,
+        currentCommit: commit.message.slice(0, 30)
+      });
+
+      // 批次间延迟 500ms 避免 API 限流
+      if (i < commits.length - 1) {
+        await new Promise(r => setTimeout(r, 500));
+      }
+    }
+
+    // 生成最终报告
+    const repoList = [...new Set(commits.map(c => c.project))].join(', ');
+    const reportPrompt = `## ${author} ${year}年${String(month).padStart(2,'0')}月 代码绩效报告
+
+### 统计概览
+- 提交次数：${statsData.totalCommits}
+- 代码增量：+${statsData.totalAdded} -${statsData.totalDeleted} (净增 ${statsData.totalAdded - statsData.totalDeleted})
+- 活跃天数：${statsData.activeDays}
+- 涉及仓库：${repoList}
+
+### 提交类型分布
+${Object.entries(statsData.commitTypeStats || {}).map(([type, cnt]) => `- ${type}: ${cnt}`).join('\n')}
+
+### 阈值告警
+- 超阈值提交：${statsData.overThresholdCount}
+- 格式化代码警告：${statsData.formatCodeCount}
+
+### 变更摘要（共 ${commits.length} 条提交）
+${summaries.map((s, idx) => `${idx + 1}. [${s.date}] ${s.message}\n   ${s.summary}`).join('\n\n')}
+
+请根据以上数据生成一份综合报告，包含：
+1. **综合评分**（0-100）：给出评分及理由
+2. **问题分类汇总**：按严重程度分类（严重/警告/建议），每类列举 2-3 个具体问题
+3. **贡献度评价**：分析该开发者的代码贡献特点和模式
+4. **改进建议**：给出 3-5 条具体可行的改进建议
+
+报告语言：中文`;
+
+    const llmResp = await callLLMApi(aiConfig.apiUrl, aiConfig.model, aiConfig.authorization, reportPrompt);
+    if (!llmResp.success) {
+      return { success: false, error: '报告生成失败: ' + llmResp.error };
+    }
+
+    // 组装 HTML 报告
+    const reportHtml = buildMonthlyReportHtml(author, year, month, statsData, summaries, llmResp.result);
+
+    return { success: true, html: reportHtml };
+
+  } catch (e) {
+    console.error('生成报告错误:', e);
+    return { success: false, error: e.message };
+  }
+});
+
+// 获取本地仓库的 diff
+async function getLocalRepoDiff(repoPath, commitHash) {
+  try {
+    const command = `git -C "${repoPath}" show --patch --format="" ${commitHash}`;
+    const diffOutput = await runCommand(command);
+    return { success: true, raw: diffOutput };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+}
+
+// 通过 SSH 获取 diff（克隆后获取再清理）
+async function getSshRepoDiff(repoUrl, commitHash) {
+  const tempDir = path.join(app.getPath('temp'), `jixiao-diff-${Date.now()}`);
+  await fs.ensureDir(tempDir);
+
+  try {
+    const localDir = repoUrl.split('/').pop().replace('.git', '');
+    const repoPath = path.join(tempDir, localDir);
+
+    await runCommand(`git clone --filter=blob:none "${repoUrl}" "${repoPath}"`);
+    const command = `git -C "${repoPath}" show --patch --format="" ${commitHash}`;
+    const diffOutput = await runCommand(command);
+
+    return { success: true, raw: diffOutput };
+  } catch (error) {
+    return { success: false, error: error.message };
+  } finally {
+    await fs.remove(tempDir);
+  }
+}
+
+// 通过 GitLab API 获取 diff
+async function getGitLabApiDiff(gitlabUrl, token, projectId, commitHash) {
+  try {
+    const baseUrl = gitlabUrl.replace(/\/+$/, '');
+    const apiUrl = `${baseUrl}/api/v4/projects/${encodeURIComponent(projectId)}/repository/commits/${commitHash}/diff`;
+
+    const response = await gitlabApiRequest(apiUrl, token);
+
+    if (response.success) {
+      const diffOutput = formatGitLabDiff(response.data);
+      return { success: true, raw: diffOutput };
+    } else {
+      return { success: false, error: response.error };
+    }
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+}
+
+// 格式化 GitLab diff 为统一格式
+function formatGitLabDiff(diffData) {
+  if (!Array.isArray(diffData)) return '';
+  return diffData.map(file => {
+    let result = `${'='.repeat(60)}\n`;
+    result += `文件: ${file.new_path || file.old_path}\n`;
+    result += `状态: ${file.status}\n`;
+    result += `${'='.repeat(60)}\n`;
+    if (file.diff) {
+      result += file.diff + '\n';
+    }
+    return result;
+  }).join('\n');
+}
+
+// 生成月度报告 HTML
+function buildMonthlyReportHtml(author, year, month, statsData, summaries, aiReport) {
+  const timestamp = new Date().toLocaleString('zh-CN');
+  const repoList = [...new Set(summaries.map(s => s.project))].join(', ');
+
+  const commitTypeRows = Object.entries(statsData.commitTypeStats || {})
+    .map(([type, cnt]) => `<tr><td>${type}</td><td>${cnt}</td></tr>`)
+    .join('');
+
+  const summaryRows = summaries.map((s, idx) => `
+    <tr>
+      <td>${idx + 1}</td>
+      <td>${s.date}</td>
+      <td>${escapeHtml(s.message)}</td>
+      <td>${s.commitType}</td>
+      <td class="num">+${s.added}</td>
+      <td class="num">-${s.deleted}</td>
+      <td><span class="badge ${s.status}">${s.status}</span></td>
+      <td>${escapeHtml(s.summary)}</td>
+    </tr>
+  `).join('');
+
+  return `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${author} ${year}年${String(month).padStart(2,'0')}月代码绩效报告</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 1200px; margin: 0 auto; padding: 20px; }
+    h1 { font-size: 24px; border-bottom: 2px solid #4caf50; padding-bottom: 10px; margin-bottom: 20px; }
+    h2 { font-size: 18px; color: #4caf50; margin: 30px 0 15px; border-left: 4px solid #4caf50; padding-left: 10px; }
+    .subtitle { color: #666; font-size: 14px; margin-bottom: 30px; }
+    .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px; margin-bottom: 30px; }
+    .stat-card { background: linear-gradient(135deg, #4caf50, #45a049); color: white; padding: 20px; border-radius: 8px; text-align: center; }
+    .stat-card .value { font-size: 28px; font-weight: bold; }
+    .stat-card .label { font-size: 12px; opacity: 0.9; }
+    .stat-card.warning { background: linear-gradient(135deg, #ff9800, #f57c00); }
+    .stat-card.danger { background: linear-gradient(135deg, #f44336, #d32f2f); }
+    table { width: 100%; border-collapse: collapse; margin: 15px 0; font-size: 14px; }
+    th, td { border: 1px solid #ddd; padding: 10px 8px; text-align: left; }
+    th { background: #f5f5f5; font-weight: 600; }
+    tr:nth-child(even) { background: #fafafa; }
+    .num { text-align: right; font-family: monospace; }
+    .badge { padding: 2px 8px; border-radius: 4px; font-size: 12px; }
+    .badge.normal { background: #e8f5e9; color: #2e7d32; }
+    .badge.over { background: #fff3e0; color: #e65100; }
+    .badge.format { background: #fce4ec; color: #c2185b; }
+    .ai-report { background: #f9f9f9; padding: 20px; border-radius: 8px; white-space: pre-wrap; }
+    .footer { margin-top: 40px; padding-top: 20px; border-top: 1px solid #ddd; color: #999; font-size: 12px; text-align: center; }
+  </style>
+</head>
+<body>
+  <h1>${escapeHtml(author)} 代码绩效报告</h1>
+  <p class="subtitle">${year}年${String(month).padStart(2,'0')}月 | 生成时间：${timestamp}</p>
+
+  <h2>📊 统计概览</h2>
+  <div class="stats-grid">
+    <div class="stat-card">
+      <div class="value">${statsData.totalCommits}</div>
+      <div class="label">提交次数</div>
+    </div>
+    <div class="stat-card">
+      <div class="value">+${statsData.totalAdded}</div>
+      <div class="label">新增行</div>
+    </div>
+    <div class="stat-card">
+      <div class="value">-${statsData.totalDeleted}</div>
+      <div class="label">删除行</div>
+    </div>
+    <div class="stat-card">
+      <div class="value">${statsData.totalAdded - statsData.totalDeleted}</div>
+      <div class="label">净增行</div>
+    </div>
+    <div class="stat-card">
+      <div class="value">${statsData.activeDays}</div>
+      <div class="label">活跃天数</div>
+    </div>
+    ${statsData.overThresholdCount > 0 ? `
+    <div class="stat-card danger">
+      <div class="value">${statsData.overThresholdCount}</div>
+      <div class="label">超阈值提交</div>
+    </div>` : ''}
+    ${statsData.formatCodeCount > 0 ? `
+    <div class="stat-card warning">
+      <div class="value">${statsData.formatCodeCount}</div>
+      <div class="label">格式化警告</div>
+    </div>` : ''}
+  </div>
+
+  <p style="margin-bottom: 15px;"><strong>涉及仓库：</strong>${escapeHtml(repoList)}</p>
+
+  <h2>📈 提交类型分布</h2>
+  <table>
+    <tr><th>类型</th><th>次数</th></tr>
+    ${commitTypeRows || '<tr><td colspan="2">无数据</td></tr>'}
+  </table>
+
+  <h2>📝 变更摘要</h2>
+  <table>
+    <tr>
+      <th>#</th>
+      <th>日期</th>
+      <th>提交信息</th>
+      <th>类型</th>
+      <th>新增</th>
+      <th>删除</th>
+      <th>状态</th>
+      <th>摘要</th>
+    </tr>
+    ${summaryRows || '<tr><td colspan="8">无数据</td></tr>'}
+  </table>
+
+  <h2>🤖 AI 综合分析</h2>
+  <div class="ai-report">${escapeHtml(aiReport)}</div>
+
+  <div class="footer">
+    <p>由代码统计工具自动生成 | 数据仅供参考</p>
+  </div>
+</body>
+</html>`;
+}
+
+// HTML 转义辅助函数
+function escapeHtml(text) {
+  if (!text) return '';
+  return String(text)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}

@@ -77,6 +77,16 @@ contextBridge.exposeInMainWorld('gitMultiRepoAPI', {
 
 // 导出报告 API
 contextBridge.exposeInMainWorld('exportAPI', {
-  saveReport: (html, format) =>
-    ipcRenderer.invoke('export-save-report', { html, format })
+  saveReport: (html, format) => ipcRenderer.invoke('export-save-report', { html, format }),
+  generateMonthlyReport: (params, dimensions, aiConfig) => {
+    // params 包含: author, year, month, statsData(包含 commits 数组)
+    return ipcRenderer.invoke('generate-monthly-report', {
+      author: params.author,
+      year: params.year,
+      month: params.month,
+      statsData: params.statsData,
+      dimensions,
+      aiConfig
+    });
+  }
 });

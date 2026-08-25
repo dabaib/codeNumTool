@@ -3817,3 +3817,116 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 });
+// 生成月度报告按钮逻辑
+document.addEventListener('DOMContentLoaded', () => {
+  const generateBtn = document.getElementById('generateReportBtn');
+  const progressBar = document.getElementById('reportProgress');
+
+  if (generateBtn) {
+    generateBtn.addEventListener('click', async () => {
+      // 检查是否已有查询数据
+      if (!queryResult) {
+        alert('请先点击"查询统计"获取当前周期的数据，再生成报告');
+        return;
+      }
+
+      const commits = queryResult.commits || [];
+      if (commits.length === 0) {
+        alert('没有提交记录可生成报告');
+        return;
+      }
+
+      // 显示进度条
+      progressBar.classList.remove('hidden');
+      const progressInner = progressBar.querySelector('.progress-bar');
+      progressInner.style.width = '0%';
+
+      // 收集参数
+      const author = document.getElementById('author')?.value?.trim() || queryResult.author || '';
+      const yearMonthVal = document.getElementById('yearMonth')?.value || '';
+      const [yearNum, monthNum] = yearMonthVal.split('-').map(Number);
+
+      // 读取 AI 配置
+      let aiConfig = getAIConfig();
+      if (!aiConfig.apiUrl) {
+        try {
+          const saved = localStorage.getItem('aiConfig');
+          if (saved) {
+            const parsed = JSON.parse(saved);
+            aiConfig = { apiUrl: parsed.apiUrl || '', model: parsed.model || '', authorization: parsed.apiKey || '' };
+          }
+        } catch (e) { /* ignore */ }
+      }
+
+      // 组装 statsData
+      const statsData = {
+        totalCommits: queryResult.totalCommits || commits.length,
+        totalAdded: queryResult.totalAdded || 0,
+        totalDeleted: queryResult.totalDeleted || 0,
+        overThresholdCount: queryResult.overThresholdCount || 0,
+        formatCodeCount: queryResult.formatCodeCount || 0,
+        activeDays: Array.isArray(queryResult.activeDays) ? queryResult.activeDays.length : (queryResult.activeDays || 0),
+        commitTypeStats: queryResult.commitTypeStats || {},
+        commits: commits.map(c => ({
+          revision: c.revision || c.hash,
+          date: c.date ? c.date.substring(0, 10) : '',
+          message: c.message,
+          commitType: c.commitType || 'other',
+          added: c.added || 0,
+          deleted: c.deleted || 0,
+          net: c.net || 0,
+          status: c.status || 'normal',
+          project: c.project || c.repoName || '',
+          repoName: c.repoName || '',
+          branch: c.branch || '',
+          repoSource: c.repoSource || c.source || 'local',
+          repoPath: c.repoPath || '',
+          repoUrl: c.repoUrl || '',
+          gitlabUrl: c.gitlabUrl || '',
+          token: c.token || '',
+          projectId: c.projectId || ''
+        }))
+      };
+
+      // 监听进度更新
+      const progressHandler = (event, data) => {
+        const percent = Math.round((data.current / data.total) * 100);
+        progressInner.style.width = percent + '%';
+        generateBtn.title = `正在处理: ${data.current}/${data.total} (第${data.batch}/${data.totalBatches}批)`;
+      };
+
+      try {
+        // 监听进度事件
+        if (window.electron?.ipcRenderer) {
+          window.electron.ipcRenderer.on('monthly-report-progress', progressHandler);
+        }
+
+        const result = await window.exportAPI.generateMonthlyReport(
+          { author, year: yearNum, month: monthNum, statsData },
+          [],
+          aiConfig
+        );
+
+        if (result && result.success) {
+          const saveRes = await window.exportAPI.saveReport(result.html, 'html');
+          if (saveRes && saveRes.success) {
+            alert(`报告已导出：${saveRes.filePath}`);
+          } else {
+            alert(`导出失败：${saveRes.error || '未知错误'}`);
+          }
+        } else {
+          alert(`生成报告失败：${result.error || '未知错误'}`);
+        }
+      } catch (e) {
+        alert(`生成报告出错：${e.message}`);
+      } finally {
+        progressBar.classList.add('hidden');
+        generateBtn.title = '生成月度报告';
+        // 移除进度监听
+        if (window.electron?.ipcRenderer) {
+          window.electron.ipcRenderer.removeListener('monthly-report-progress', progressHandler);
+        }
+      }
+    });
+  }
+});
