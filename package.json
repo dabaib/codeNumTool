@@ -1,6 +1,6 @@
 {
   "name": "code-stats",
-  "version": "1.0.3",
+  "version": "1.0.5",
   "description": "代码提交统计工具",
   "main": "main.js",
   "scripts": {
