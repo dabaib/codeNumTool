@@ -88,5 +88,11 @@ contextBridge.exposeInMainWorld('exportAPI', {
       dimensions,
       aiConfig
     });
+  },
+  onMonthlyReportProgress: (callback) => {
+    ipcRenderer.on('monthly-report-progress', (event, data) => callback(data));
+  },
+  removeMonthlyReportProgressListener: () => {
+    ipcRenderer.removeAllListeners('monthly-report-progress');
   }
 });

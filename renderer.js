@@ -3889,7 +3889,7 @@ document.addEventListener('DOMContentLoaded', () => {
       };
 
       // 监听进度更新
-      const progressHandler = (event, data) => {
+      const progressHandler = (data) => {
         const percent = Math.round((data.current / data.total) * 100);
         progressInner.style.width = percent + '%';
         generateBtn.title = `正在处理: ${data.current}/${data.total} (第${data.batch}/${data.totalBatches}批)`;
@@ -3897,9 +3897,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       try {
         // 监听进度事件
-        if (window.electron?.ipcRenderer) {
-          window.electron.ipcRenderer.on('monthly-report-progress', progressHandler);
-        }
+        window.exportAPI.onMonthlyReportProgress(progressHandler);
 
         const result = await window.exportAPI.generateMonthlyReport(
           { author, year: yearNum, month: monthNum, statsData },
@@ -3923,9 +3921,7 @@ document.addEventListener('DOMContentLoaded', () => {
         progressBar.classList.add('hidden');
         generateBtn.title = '生成月度报告';
         // 移除进度监听
-        if (window.electron?.ipcRenderer) {
-          window.electron.ipcRenderer.removeListener('monthly-report-progress', progressHandler);
-        }
+        window.exportAPI.removeMonthlyReportProgressListener();
       }
     });
   }
